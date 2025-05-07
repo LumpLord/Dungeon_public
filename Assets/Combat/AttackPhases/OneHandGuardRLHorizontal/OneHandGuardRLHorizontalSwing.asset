@@ -1,0 +1,87 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5518b8417447547e88dabd11ab3361ec, type: 3}
+  m_Name: OneHandGuardRLHorizontalSwing
+  m_EditorClassIdentifier: 
+  damageCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0.59877396
+      inSlope: 1.0113516
+      outSlope: 1.0113516
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 0.37711263
+      value: 0.9801674
+      inSlope: 0.4148119
+      outSlope: 0.4148119
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0.33333334
+    - serializedVersion: 3
+      time: 0.83927256
+      value: 0.8961801
+      inSlope: -0.34009922
+      outSlope: -0.34009922
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0.40631598
+      outWeight: 1
+    - serializedVersion: 3
+      time: 1
+      value: 0.7971039
+      inSlope: -0.6164237
+      outSlope: -0.6164237
+      tangentMode: 34
+      weightedMode: 0
+      inWeight: 0.33333334
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  phaseName: Swing
+  duration: 0.2
+  positionOffset: {x: 0.93, y: -0.487, z: -0.324}
+  rotationOffset: {x: 347.14185, y: 249.88351, z: 78.73129}
+  enableDamageDuringPhase: 1
+  interpolationCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 0
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  allowComboQueue: 1
+  endCurrentAttackOnCombo: 1
