@@ -1,10 +1,17 @@
 using UnityEngine;
 using UnityEngine.AI;
 using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyCombatController : MonoBehaviour
 {
+    [Header("Fallback Search")]
+    public EnemyCombatStateBase searchState;
+
+    public System.Action OnCombatDisengaged;
+
     public Transform player;
     public EquippedWeaponController weaponController;
 
@@ -12,42 +19,37 @@ public class EnemyCombatController : MonoBehaviour
     public float engageDistance = 5f;
     public float disengageDistance = 10f;
 
-    [Header("Attack Behavior")]
-    public float attackCooldownMin = 1.5f;
-    public float attackCooldownMax = 3f;
+    [Header("Combat Vision Settings")]
+    public float combatVisionDistance = 12f;
+    public float combatVisionAngle = 150f;
+    public float combatLoseTimeout = 3f;
 
-    [Range(0f, 1f)] public float rushChance = 0.5f;
-    public float rushAttackRange = 2f;
-
-    [Header("Stalk Behavior")]
-    public float circleRadius = 3.5f;
-    public float stalkMoveSpeed = 2f;
-    public float timeBetweenCirclesMin = 1.5f;
-    public float timeBetweenCirclesMax = 3f;
-
-    [Header("Follow-up Behavior")]
-    public float followUpAttackChance = 0.5f;
-    public float retreatDistance = 6f;
-    public float retreatSpeed = 5f;
-
-    [Header("Stalking Settings")]
-    public float minStalkTime = 1.5f;
-    public float maxStalkTime = 3.5f;
-
-    private enum CombatState { Idle, Stalking, Rushing, Attacking, Retreating }
+    [Header("Experimental AI Settings")]
+    public bool useModularAI = true;
+    public EnemyCombatBehaviorProfile behaviorProfile;
+    public EnemyCombatStateBase searchFallbackState;
 
     private NavMeshAgent agent;
-    private CombatState currentState;
-
     private bool isEngaged = false;
-    private bool isAttacking = false;
-    private float stateTimer;
+    public bool isInCombat = false;
+    private Coroutine stateRoutine;
+
+    private Queue<IEnemyCombatState> modularCombatQueue = new();
+    public string lastExecutedState = "";
+    private float timeSincePlayerSeen = 0f;
+    private Vector3 lastKnownPlayerPosition;
+
+    [Header("Fail-Safe Settings")]
+    public float retargetRadius = 20f;
+    public LayerMask playerLayer;
+
+    private HealthComponent health;
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
-        if (weaponController == null)
-            weaponController = GetComponent<EquippedWeaponController>();
+        weaponController ??= GetComponent<EquippedWeaponController>();
+        health = GetComponent<HealthComponent>();
     }
 
     void Update()
@@ -64,146 +66,265 @@ public class EnemyCombatController : MonoBehaviour
         {
             DisengageCombat();
         }
-
-        if (isEngaged)
-        {
-            UpdateCombatState();
-        }
     }
 
     public void EnterCombat(Transform target)
     {
-        if (agent == null) agent = GetComponent<NavMeshAgent>();
-        if (weaponController == null) weaponController = GetComponent<EquippedWeaponController>();
-
+        agent ??= GetComponent<NavMeshAgent>();
+        weaponController ??= GetComponent<EquippedWeaponController>();
         player = target;
         EngageCombat();
         Debug.Log($"{name} has entered combat mode against: {target.name}");
     }
 
-    void EngageCombat()
+    public void EngageCombat()
     {
+        Debug.Log($"{name} EngageCombat() called with target: {(player != null ? player.name : "NULL")}");
+
+        if (isInCombat)
+        {
+            Debug.Log($"{name} is already in combat.");
+            return;
+        }
+
         isEngaged = true;
-        currentState = CombatState.Stalking;
-        stateTimer = Random.Range(minStalkTime, maxStalkTime);
+        isInCombat = true;
+        timeSincePlayerSeen = 0f;
+
+        if (stateRoutine != null)
+            StopCoroutine(stateRoutine);
+
+        stateRoutine = StartCoroutine(ModularCombatLoop());
     }
 
-    void DisengageCombat()
+    public void DisengageCombat()
     {
+        Debug.Log($"{name} is disengaging combat.");
         isEngaged = false;
-        currentState = CombatState.Idle;
+        isInCombat = false;
         agent.ResetPath();
-        isAttacking = false;
-    }
 
-    void UpdateCombatState()
-    {
-        if (player == null || weaponController == null) return;
-
-        stateTimer -= Time.deltaTime;
-
-        switch (currentState)
+        if (stateRoutine != null)
         {
-            case CombatState.Stalking:
-                HandleStalking();
-                break;
-
-            case CombatState.Rushing:
-                HandleRushing();
-                break;
-
-            case CombatState.Retreating:
-                if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
-                {
-                    TransitionToStalking();
-                }
-                break;
-        }
-    }
-
-    void HandleStalking()
-    {
-        Vector3 direction = Vector3.Cross(Vector3.up, (player.position - transform.position).normalized);
-        Vector3 destination = player.position + direction.normalized * circleRadius;
-
-        if (NavMesh.SamplePosition(destination, out NavMeshHit hit, 1.0f, NavMesh.AllAreas))
-        {
-            agent.speed = stalkMoveSpeed;
-            agent.SetDestination(hit.position);
+            StopCoroutine(stateRoutine);
+            stateRoutine = null;
         }
 
-        if (stateTimer <= 0f)
+        modularCombatQueue.Clear();
+        OnCombatDisengaged?.Invoke();
+    }
+
+    IEnumerator ModularCombatLoop()
+    {
+        Debug.Log($"{name} started ModularCombatLoop. Target is {(player != null ? player.name : "NULL")}");
+
+        while (isEngaged)
         {
-            float roll = Random.value;
-            if (roll < rushChance)
+            if (player != null)
+                lastKnownPlayerPosition = player.position;
+
+            if (!PlayerInCombatVision())
             {
-                currentState = CombatState.Rushing;
+                timeSincePlayerSeen += Time.deltaTime;
+
+                if (timeSincePlayerSeen >= combatLoseTimeout)
+                {
+                    Debug.LogWarning($"{name} lost player. Initiating fallback search...");
+                    modularCombatQueue.Clear();
+
+                    if (searchFallbackState != null)
+                    {
+                        EnqueueState(searchFallbackState);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"{name} has no search fallback. Disengaging.");
+                        DisengageCombat();
+                        yield break;
+                    }
+                }
             }
             else
             {
-                currentState = CombatState.Attacking;
-                StartCoroutine(PerformAttackSequence());
+                timeSincePlayerSeen = 0f;
+            }
+
+            if (modularCombatQueue.Count == 0)
+            {
+                Debug.Log($"{name} queue is empty, enqueuing random behavior...");
+                EnqueueRandomBehaviorState();
+            }
+
+            if (modularCombatQueue.Count > 0)
+            {
+                IEnemyCombatState next = modularCombatQueue.Dequeue();
+                if (next == null)
+                {
+                    Debug.LogWarning($"{name} dequeued a null combat state. Skipping...");
+                    continue;
+                }
+
+                lastExecutedState = next.GetType().Name;
+                Debug.Log($"{name} is starting behavior: {lastExecutedState}");
+
+                Coroutine behaviorCoroutine = StartCoroutine(WrapWithVisionCheck(next.Execute(this)));
+                //var behaviorCoroutine = StartCoroutine(WrapWithVisionCheck(next.Execute(this)));
+
+                yield return behaviorCoroutine;
+                yield return new WaitForSeconds(0.02f);
+                Debug.Log($"{name} completed behavior: {lastExecutedState}");
+            }
+            else
+            {
+                Debug.LogWarning($"{name} found nothing to do! Attempting retarget...");
+
+                if (TryRetargetPlayer())
+                {
+                    Debug.Log($"{name} retargeted successfully.");
+                    //EngageCombat();
+                    continue;
+                }
+                else if (searchFallbackState != null)
+                {
+                    Debug.LogWarning($"{name} failed to retarget. Using fallback search...");
+                    yield return StartCoroutine(searchFallbackState.Execute(this));
+                    yield break;
+                }
+                else
+                {
+                    Debug.LogError($"{name} has no options left. Disengaging.");
+                    DisengageCombat();
+                    yield break;
+                }
+            }
+            if (health != null && health.IsDead())
+            {
+                Debug.Log($"{name} is dead. Ending combat loop.");
+                yield break;
             }
         }
     }
 
-    void HandleRushing()
-    {
-        agent.speed = retreatSpeed;
-        agent.SetDestination(player.position);
+    public void EnqueueState(IEnemyCombatState state) => modularCombatQueue.Enqueue(state);
 
-        if (Vector3.Distance(transform.position, player.position) <= rushAttackRange)
+    public void FaceTargetSmooth()
+    {
+        if (player == null) return;
+
+        Vector3 direction = (player.position - transform.position).normalized;
+        direction.y = 0f;
+        if (direction.sqrMagnitude > 0.01f)
         {
-            agent.ResetPath();
-            currentState = CombatState.Attacking;
-            StartCoroutine(PerformAttackSequence());
+            Quaternion lookRotation = Quaternion.LookRotation(direction);
+            transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation, Time.deltaTime * 5f);
         }
     }
 
-    IEnumerator PerformAttackSequence()
+    private void EnqueueRandomBehaviorState()
     {
-        isAttacking = true;
+        if (behaviorProfile == null || behaviorProfile.weightedStates.Count == 0) return;
 
-        if (weaponController != null)
-            weaponController.PerformAttack();
+        var validStates = behaviorProfile.weightedStates
+            .Where(ws => ws.stateComponent is IEnemyCombatState state && state.CanExecute(this))
+            .ToList();
 
-        yield return new WaitForSeconds(Random.Range(attackCooldownMin, attackCooldownMax));
-
-        float roll = Random.value;
-        if (roll < followUpAttackChance)
+        if (validStates.Count == 0)
         {
-            currentState = CombatState.Attacking;
-            StartCoroutine(PerformAttackSequence());
-        }
-        else
-        {
-            RetreatFromPlayer();
+            Debug.LogWarning($"{name} has no valid combat states available.");
+            return;
         }
 
-        isAttacking = false;
-    }
+        float totalWeight = validStates.Sum(ws => ws.weight);
+        float roll = Random.Range(0, totalWeight);
+        float cumulative = 0f;
 
-    void RetreatFromPlayer()
-    {
-        Vector3 retreatDir = (transform.position - player.position).normalized;
-        Vector3 retreatPos = transform.position + retreatDir * retreatDistance;
-
-        if (NavMesh.SamplePosition(retreatPos, out NavMeshHit hit, retreatDistance, NavMesh.AllAreas))
+        foreach (var entry in validStates)
         {
-            agent.speed = retreatSpeed;
-            agent.SetDestination(hit.position);
-            currentState = CombatState.Retreating;
-            stateTimer = Random.Range(minStalkTime, maxStalkTime);
-        }
-        else
-        {
-            TransitionToStalking();
+            cumulative += entry.weight;
+            if (roll <= cumulative)
+            {
+                if (entry.stateComponent is IEnemyCombatState state)
+                {
+                    EnqueueState(state);
+                    break;
+                }
+            }
         }
     }
 
-    void TransitionToStalking()
+    private IEnumerator WrapWithVisionCheck(IEnumerator behavior)
     {
-        currentState = CombatState.Stalking;
-        stateTimer = Random.Range(minStalkTime, maxStalkTime);
+        timeSincePlayerSeen = 0f;
+
+        while (true)
+        {
+            if (!behavior.MoveNext())
+            {
+                Debug.Log($"{name} completed behavior: {lastExecutedState}");
+                yield break;
+            }
+
+            if (!PlayerInCombatVision())
+            {
+                timeSincePlayerSeen += Time.deltaTime;
+
+                if (timeSincePlayerSeen >= combatLoseTimeout)
+                {
+                    Debug.LogWarning($"{name} lost player mid-behavior: {lastExecutedState}");
+                    modularCombatQueue.Clear();
+
+                    if (searchFallbackState != null)
+                    {
+                        EnqueueState(searchFallbackState);
+                    }
+                    else
+                    {
+                        Debug.LogError($"{name} cannot fallback during {lastExecutedState}. Disengaging.");
+                        DisengageCombat();
+                    }
+
+                    yield break;
+                }
+            }
+            else
+            {
+                timeSincePlayerSeen = 0f;
+                lastKnownPlayerPosition = player.position;
+            }
+
+            yield return behavior.Current;
+        }
     }
+
+    public bool PlayerInCombatVision()
+    {
+        if (player == null) return false;
+
+        Vector3 dirToPlayer = (player.position - transform.position).normalized;
+        float angle = Vector3.Angle(transform.forward, dirToPlayer);
+        float distance = Vector3.Distance(transform.position, player.position);
+
+        return angle < combatVisionAngle / 2f && distance <= combatVisionDistance;
+    }
+
+    private bool TryRetargetPlayer()
+    {
+        Collider[] hits = Physics.OverlapSphere(transform.position, retargetRadius, playerLayer);
+        foreach (var hit in hits)
+        {
+            if (hit.CompareTag("Player"))
+            {
+                player = hit.transform;
+                lastKnownPlayerPosition = player.position;
+                Debug.Log($"{name} re-acquired player via fail-safe retarget.");
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public Transform GetTarget() => player;
+    public NavMeshAgent GetAgent() => agent;
+    public EquippedWeaponController GetWeaponController() => weaponController;
+    public Vector3 GetLastKnownPlayerPosition() => lastKnownPlayerPosition;
 }
