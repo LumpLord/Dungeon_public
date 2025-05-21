@@ -1,55 +1,112 @@
-using System.Collections;
 using UnityEngine;
 using UnityEngine.AI;
+using System.Collections;
 
-[CreateAssetMenu(fileName = "NewRetreatState", menuName = "AI/Combat States/Retreat")]
+[CreateAssetMenu(menuName = "Enemy/Combat States/Retreat State")]
 public class RetreatState : EnemyCombatStateBase
 {
-    public float retreatSpeed = 4f;
-    public float retreatDistance = 3f;
-    public float retreatDuration = 1f;
-    public float minDuration = .5f;
+    [SerializeField] public float minStartDistance = 3f;
+    [SerializeField] public float maxStartDistance = 10f;
+    [SerializeField] public float retreatDistance = 6f;
+    [SerializeField] public float retreatSpeedMultiplier = 1.5f;
+    [SerializeField] public float minTimeBeforeNextState = 1.25f;
+
+    private float endTime;
+
+    public override void EnterState(EnemyCombatController controller)
+    {
+        Debug.Log($"{controller.name} EnterState() called for {this.GetType().Name}");
+        Debug.Log($"{controller.name} is entering {this.GetType().Name}");
+
+        var agent = controller.GetAgent();
+        var target = controller.GetTarget();
+
+        if (agent == null || target == null)
+        {
+            Debug.LogWarning($"{controller.name} RetreatState early exit: agent null? {agent == null}, target null? {target == null}");
+            return;
+        }
+
+        agent.isStopped = false;
+        agent.speed *= retreatSpeedMultiplier;
+
+        Vector3 awayDirection = (controller.transform.position - target.position).normalized;
+        Vector3 retreatDestination = controller.transform.position + awayDirection * retreatDistance;
+
+        if (NavMesh.SamplePosition(retreatDestination, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+        {
+            retreatDestination = hit.position;
+        }
+
+        Debug.Log($"{controller.name} Retreat destination calculated: {retreatDestination}");
+
+        agent.updateRotation = false; // Disable automatic NavMeshAgent rotation
+        agent.SetDestination(retreatDestination);
+
+        Debug.Log($"{controller.name} Retreat destination set: {agent.destination}, agent speed: {agent.speed}");
+
+        Debug.Log($"{controller.name} RetreatState: setting endTime with minTimeBeforeNextState = {minTimeBeforeNextState}");
+        if (minTimeBeforeNextState <= 0f)
+        {
+            minTimeBeforeNextState = 1.25f; // fallback default
+            Debug.LogWarning($"{controller.name} RetreatState: minTimeBeforeNextState was 0 or less, defaulting to 1.25s");
+        }
+        endTime = Time.time + minTimeBeforeNextState;
+        Debug.Log($"{controller.name} RetreatState endTime set to: {endTime}, current time: {Time.time}");
+    }
 
     public override IEnumerator Execute(EnemyCombatController controller)
     {
+        Debug.Log($"{controller.name} is executing {this.GetType().Name}");
+        Debug.Log($"{controller.name} RetreatState duration set to end at: {endTime}, current time: {Time.time}");
         var agent = controller.GetAgent();
         var target = controller.GetTarget();
-        if (controller == null || agent == null || target == null || !agent.enabled || !agent.isOnNavMesh)
-        yield break;
 
-        Vector3 direction = (controller.transform.position - target.position).normalized;
-        Vector3 destination = controller.transform.position + direction * retreatDistance;
-
-        if (NavMesh.SamplePosition(destination, out NavMeshHit hit, retreatDistance, NavMesh.AllAreas))
+        if (agent == null || !agent.enabled || !agent.isOnNavMesh || target == null || controller == null || controller.gameObject == null || !controller.gameObject.activeInHierarchy)
+            yield break;
+ 
+        while (Time.time < endTime)
         {
-            agent.speed = retreatSpeed;
-            agent.SetDestination(hit.position);
-        }
+            if (agent == null || !agent.enabled || !agent.isOnNavMesh)
+                yield break;
 
-        float elapsed = 0f;
-        while (elapsed < retreatDuration)
-        {
-            if (!controller.PlayerInCombatVision()) yield break;
-            if (!agent.enabled || !agent.isOnNavMesh) yield break;
-
-
-            elapsed += Time.deltaTime;
             controller.FaceTargetSmooth();
+
+            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
+            {
+                Debug.Log($"{controller.name} RetreatState destination reached, idling until duration ends.");
+                Debug.Log($"{controller.name} RetreatState remaining distance: {agent.remainingDistance}, stopping distance: {agent.stoppingDistance}");
+            }
+
             yield return null;
         }
-
-        agent.ResetPath();
-
-        while (elapsed < minDuration)
-        {
-            elapsed += Time.deltaTime;
-            yield return null;
-        }
+        Debug.Log($"{controller.name} RetreatState duration met or destination reached. Exiting.");
     }
 
-    public override bool CanExecute(EnemyCombatController controller)
+    public override void ExitState(EnemyCombatController controller)
     {
-        float distance = Vector3.Distance(controller.transform.position, controller.GetTarget().position);
-        return distance <= 4f;
+        Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
+        var agent = controller.GetAgent();
+        if (agent != null)
+            agent.speed /= retreatSpeedMultiplier;
     }
-} 
+
+    public override bool CanExit(EnemyCombatController controller)
+    {
+        return Time.time >= endTime;
+    }
+
+    public override bool CanQueueNextState(EnemyCombatController controller)
+    {
+        return Time.time >= endTime;
+    }
+
+        public override bool CanExecute(EnemyCombatController controller)
+    {
+        if (controller == null || controller.GetTarget() == null)
+            return false;
+
+        float distance = Vector3.Distance(controller.transform.position, controller.GetTarget().position);
+        return distance >= minStartDistance && distance <= maxStartDistance;
+    }
+}

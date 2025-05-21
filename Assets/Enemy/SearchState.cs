@@ -10,8 +10,14 @@ public class SearchState : EnemyCombatStateBase
     public float relocateRadius = 3f;
     public float relocateDuration = 1.5f;
 
+    public override void EnterState(EnemyCombatController controller)
+    {
+        Debug.Log($"{controller.name} is entering {this.GetType().Name}");
+    }
+
     public override IEnumerator Execute(EnemyCombatController controller)
     {
+        Debug.Log($"{controller.name} is executing {this.GetType().Name}");
         NavMeshAgent agent = controller.GetAgent();
         Transform target = controller.GetTarget();
 
@@ -65,5 +71,10 @@ public class SearchState : EnemyCombatStateBase
         }
 
         yield return new WaitForSeconds(1f);
+    }
+
+    public override void ExitState(EnemyCombatController controller)
+    {
+        Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
     }
 }

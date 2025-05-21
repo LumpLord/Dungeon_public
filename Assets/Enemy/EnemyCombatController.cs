@@ -7,6 +7,8 @@ using System.Linq;
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyCombatController : MonoBehaviour
 {
+    [HideInInspector] public float currentStateEndTime;
+
     [Header("Fallback Search")]
     public EnemyCombatStateBase searchState;
 
@@ -31,7 +33,6 @@ public class EnemyCombatController : MonoBehaviour
 
     private NavMeshAgent agent;
     private bool isEngaged = false;
-    public bool isInCombat = false;
     private Coroutine stateRoutine;
 
     private Queue<IEnemyCombatState> modularCombatQueue = new();
@@ -43,13 +44,30 @@ public class EnemyCombatController : MonoBehaviour
     public float retargetRadius = 20f;
     public LayerMask playerLayer;
 
-    private HealthComponent health;
+    public bool isInCombat = false;
+
+    // Stage 2 additions
+    private float nextAvailableStateTime = 0f;
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         weaponController ??= GetComponent<EquippedWeaponController>();
-        health = GetComponent<HealthComponent>();
+
+        // Auto-assign player if not already set
+        if (player == null)
+        {
+            GameObject foundPlayer = GameObject.FindGameObjectWithTag("Player");
+            if (foundPlayer != null)
+            {
+                player = foundPlayer.transform;
+                Debug.Log($"{name} auto-assigned player: {player.name}");
+            }
+            else
+            {
+                Debug.LogWarning($"{name} could not auto-assign player — no GameObject with tag 'Player' found.");
+            }
+        }
     }
 
     void Update()
@@ -70,6 +88,7 @@ public class EnemyCombatController : MonoBehaviour
 
     public void EnterCombat(Transform target)
     {
+        agent.updateRotation = false;
         agent ??= GetComponent<NavMeshAgent>();
         weaponController ??= GetComponent<EquippedWeaponController>();
         player = target;
@@ -79,27 +98,21 @@ public class EnemyCombatController : MonoBehaviour
 
     public void EngageCombat()
     {
+        if (isInCombat) return;
+
         Debug.Log($"{name} EngageCombat() called with target: {(player != null ? player.name : "NULL")}");
-
-        if (isInCombat)
-        {
-            Debug.Log($"{name} is already in combat.");
-            return;
-        }
-
         isEngaged = true;
-        isInCombat = true;
         timeSincePlayerSeen = 0f;
 
         if (stateRoutine != null)
             StopCoroutine(stateRoutine);
 
+        isInCombat = true;
         stateRoutine = StartCoroutine(ModularCombatLoop());
     }
 
     public void DisengageCombat()
     {
-        Debug.Log($"{name} is disengaging combat.");
         isEngaged = false;
         isInCombat = false;
         agent.ResetPath();
@@ -111,6 +124,7 @@ public class EnemyCombatController : MonoBehaviour
         }
 
         modularCombatQueue.Clear();
+        Debug.Log($"{name} disengaging from combat. Returning to patrol.");
         OnCombatDisengaged?.Invoke();
     }
 
@@ -151,8 +165,8 @@ public class EnemyCombatController : MonoBehaviour
 
             if (modularCombatQueue.Count == 0)
             {
-                Debug.Log($"{name} queue is empty, enqueuing random behavior...");
                 EnqueueRandomBehaviorState();
+                yield return new WaitForSeconds(0.1f);
             }
 
             if (modularCombatQueue.Count > 0)
@@ -164,24 +178,39 @@ public class EnemyCombatController : MonoBehaviour
                     continue;
                 }
 
-                lastExecutedState = next.GetType().Name;
+                if (!next.CanExecute(this))
+                {
+                    string stateName = (next as EnemyCombatStateBase)?.GetStateName() ?? "Unknown";
+                    lastExecutedState = stateName;
+                    Debug.LogWarning($"{name} tried to execute invalid state: {stateName}");
+                    continue;
+                } 
+
+                lastExecutedState = (next as EnemyCombatStateBase)?.GetStateName() ?? "Unknown";
                 Debug.Log($"{name} is starting behavior: {lastExecutedState}");
 
-                Coroutine behaviorCoroutine = StartCoroutine(WrapWithVisionCheck(next.Execute(this)));
-                //var behaviorCoroutine = StartCoroutine(WrapWithVisionCheck(next.Execute(this)));
+                if (Time.time < nextAvailableStateTime)
+                {
+                    float waitTime = nextAvailableStateTime - Time.time;
+                    yield return new WaitForSeconds(waitTime);
+                }
 
+                if (next is EnemyCombatStateBase concreteState)
+                    concreteState.EnterState(this);
+                else
+                    Debug.LogWarning($"{name} tried to call EnterState on non-EnemyCombatStateBase: {next.GetType().Name}");
+
+                Coroutine behaviorCoroutine = StartCoroutine(WrapWithVisionCheck(next.Execute(this), next));
                 yield return behaviorCoroutine;
-                yield return new WaitForSeconds(0.02f);
-                Debug.Log($"{name} completed behavior: {lastExecutedState}");
+                Debug.Log($"{name} finished behavior: {lastExecutedState}");
+
+                yield return new WaitForSeconds(0.05f);
             }
             else
             {
-                Debug.LogWarning($"{name} found nothing to do! Attempting retarget...");
-
                 if (TryRetargetPlayer())
                 {
                     Debug.Log($"{name} retargeted successfully.");
-                    //EngageCombat();
                     continue;
                 }
                 else if (searchFallbackState != null)
@@ -197,15 +226,29 @@ public class EnemyCombatController : MonoBehaviour
                     yield break;
                 }
             }
-            if (health != null && health.IsDead())
-            {
-                Debug.Log($"{name} is dead. Ending combat loop.");
-                yield break;
-            }
         }
     }
 
     public void EnqueueState(IEnemyCombatState state) => modularCombatQueue.Enqueue(state);
+
+    private EnemyCombatStateBase GetStateByName(string stateName)
+    {
+        return behaviorProfile.weightedStates
+            .Select(ws => ws.stateComponent as EnemyCombatStateBase)
+            .FirstOrDefault(state => state != null && state.GetStateName() == stateName);
+    }
+
+    public void FaceTargetLocked()
+    {
+        if (player == null) return;
+
+        Vector3 direction = (player.position - transform.position).normalized;
+        direction.y = 0f;
+        if (direction.sqrMagnitude > 0.01f)
+        {
+            transform.rotation = Quaternion.LookRotation(direction);
+        }
+    }
 
     public void FaceTargetSmooth()
     {
@@ -224,14 +267,26 @@ public class EnemyCombatController : MonoBehaviour
     {
         if (behaviorProfile == null || behaviorProfile.weightedStates.Count == 0) return;
 
+        bool isFirstState = string.IsNullOrEmpty(lastExecutedState);
+        EnemyCombatStateBase previousState = GetStateByName(lastExecutedState);
+
         var validStates = behaviorProfile.weightedStates
-            .Where(ws => ws.stateComponent is IEnemyCombatState state && state.CanExecute(this))
+            .Where(ws =>
+                ws.stateComponent is EnemyCombatStateBase state &&
+                state.CanExecute(this) &&
+                (isFirstState || state.CanRunAfter(previousState))
+            )
             .ToList();
 
         if (validStates.Count == 0)
         {
             Debug.LogWarning($"{name} has no valid combat states available.");
             return;
+        }
+
+        if (isFirstState)
+        {
+            Debug.Log($"{name} is choosing initial combat state (no previous state).");
         }
 
         float totalWeight = validStates.Sum(ws => ws.weight);
@@ -246,13 +301,13 @@ public class EnemyCombatController : MonoBehaviour
                 if (entry.stateComponent is IEnemyCombatState state)
                 {
                     EnqueueState(state);
-                    break;
+                    return;
                 }
             }
         }
     }
 
-    private IEnumerator WrapWithVisionCheck(IEnumerator behavior)
+    private IEnumerator WrapWithVisionCheck(IEnumerator behavior, IEnemyCombatState state)
     {
         timeSincePlayerSeen = 0f;
 
@@ -260,29 +315,18 @@ public class EnemyCombatController : MonoBehaviour
         {
             if (!behavior.MoveNext())
             {
-                Debug.Log($"{name} completed behavior: {lastExecutedState}");
+                Debug.Log($"{name} finished WrapWithVisionCheck for: {lastExecutedState}");
                 yield break;
             }
 
             if (!PlayerInCombatVision())
             {
                 timeSincePlayerSeen += Time.deltaTime;
-
                 if (timeSincePlayerSeen >= combatLoseTimeout)
                 {
                     Debug.LogWarning($"{name} lost player mid-behavior: {lastExecutedState}");
                     modularCombatQueue.Clear();
-
-                    if (searchFallbackState != null)
-                    {
-                        EnqueueState(searchFallbackState);
-                    }
-                    else
-                    {
-                        Debug.LogError($"{name} cannot fallback during {lastExecutedState}. Disengaging.");
-                        DisengageCombat();
-                    }
-
+                    DisengageCombat();
                     yield break;
                 }
             }
