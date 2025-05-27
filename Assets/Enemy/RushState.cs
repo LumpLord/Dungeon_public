@@ -11,6 +11,7 @@ public class RushState : EnemyCombatStateBase
     public float maxStartDistance = 15f;
     //[SerializeField] private float rushStoppingDistance = 1.2f;
     public float minTimeBeforeNextState = 0.75f;
+    public float rushStopDistance = 1.5f;
 
     private float startTime;
     private float endTime;
@@ -25,8 +26,12 @@ public class RushState : EnemyCombatStateBase
         isRushing = true;
 
         var agent = controller.GetAgent();
-        if (agent != null)
+        if (agent != null && agent.isOnNavMesh)
+        {
             agent.isStopped = true;
+            agent.updatePosition = false;
+            agent.updateRotation = false;
+        }
     }
 
     public override IEnumerator Execute(EnemyCombatController controller)
@@ -38,37 +43,85 @@ public class RushState : EnemyCombatStateBase
         var rb = controller.GetComponent<Rigidbody>();
         var agent = controller.GetAgent();
 
-        if (rb == null || rb.isKinematic)
+        if (rb == null)
         {
-            Debug.LogWarning($"{controller.name} RushState exiting early due to invalid component references or conditions.");
-            Debug.LogWarning($"{controller.name} has kinematic Rigidbody during RushState. Using NavMesh fallback.");
+            Debug.LogWarning($"{controller.name} RushState aborted: Rigidbody is null");
+            isRushing = false;
+            yield return new WaitForSeconds(minTimeBeforeNextState);
+            yield break;
+        }
+        else if (rb.isKinematic)
+        {
+            Debug.LogWarning($"{controller.name} RushState aborted: Rigidbody is kinematic");
+            isRushing = false;
+            yield return new WaitForSeconds(minTimeBeforeNextState);
+            yield break;
+        }
+        else if (agent == null)
+        {
+            Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent is null");
+            isRushing = false;
+            yield return new WaitForSeconds(minTimeBeforeNextState);
+            yield break;
+        }
+        else if (!agent.enabled)
+        {
+            Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent is disabled.");
+            isRushing = false;
+            yield return new WaitForSeconds(minTimeBeforeNextState);
+            yield break;
+        }
+        else if (!agent.isOnNavMesh)
+        {
+            Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent not on NavMesh.");
+            isRushing = false;
+            yield return new WaitForSeconds(minTimeBeforeNextState);
+            yield break;
+        }
+        else if (controller == null || controller.gameObject == null || !controller.gameObject.activeInHierarchy)
+        {
+            Debug.LogWarning($"{controller.name} RushState aborted: Controller GameObject is inactive or null");
             isRushing = false;
             yield return new WaitForSeconds(minTimeBeforeNextState);
             yield break;
         }
 
-        if (agent == null || !agent.enabled || !agent.isOnNavMesh || target == null || controller == null || controller.gameObject == null || !controller.gameObject.activeInHierarchy)
-        {
-            Debug.LogWarning($"{controller.name} RushState exiting early due to invalid component references or conditions.");
-            isRushing = false;
-            yield break;
-        }
-
-        controller.FaceTargetSmooth();
-
         while (Time.time - startTime < maxRushDuration)
         {
             if (target == null || controller == null) break;
 
+            controller.FaceTargetSmooth();
+
             Vector3 currentDirection = (target.position - controller.transform.position).normalized;
             currentDirection.y = 0;
 
-            rb.linearVelocity = currentDirection * rushSpeed;
-            controller.FaceTargetSmooth();
+            Vector3 newVelocity = currentDirection * rushSpeed;
+            if ((rb.linearVelocity - newVelocity).sqrMagnitude > 0.01f)
+            {
+                Debug.Log($"{controller.name} RushState velocity set to: {newVelocity}");
+            }
+            rb.linearVelocity = newVelocity;
 
-            // Optional: insert check to exit early if within striking range
-            // if (Vector3.Distance(controller.transform.position, target.position) < hitDistance)
-            //     break;
+            float distanceToTarget = Vector3.Distance(controller.transform.position, target.position);
+            if (distanceToTarget <= rushStopDistance)
+            {
+                Debug.Log($"{controller.name} RushState hit range reached. Initiating attack.");
+                rb.linearVelocity = Vector3.zero;
+                controller.FaceTargetSmooth();
+
+                var weaponController = controller.GetComponentInChildren<EquippedWeaponController>();
+                if (weaponController != null)
+                {
+                    Debug.Log($"{controller.name} RushState triggering weapon attack.");
+                    weaponController.PerformAttack();
+                }
+                else
+                {
+                    Debug.LogWarning($"{controller.name} RushState could not find EquippedWeaponController.");
+                }
+
+                break;
+            }
 
             yield return null;
         }
@@ -77,7 +130,7 @@ public class RushState : EnemyCombatStateBase
         rb.linearVelocity = Vector3.zero;
         isRushing = false;
 
-        if (agent != null)
+        if (agent != null && agent.isOnNavMesh)
             agent.isStopped = false;
     }
 
@@ -90,7 +143,12 @@ public class RushState : EnemyCombatStateBase
         if (rb != null) rb.linearVelocity = Vector3.zero;
 
         var agent = controller.GetAgent();
-        if (agent != null) agent.isStopped = false;
+        if (agent != null && agent.isOnNavMesh)
+        {
+            agent.updatePosition = true;
+            agent.updateRotation = true;
+            agent.isStopped = false;
+        }
     }
 
     public override bool CanExit(EnemyCombatController controller)
