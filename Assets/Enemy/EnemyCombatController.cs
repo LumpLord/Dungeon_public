@@ -4,10 +4,14 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 
+
+
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyCombatController : MonoBehaviour
 {
-    [HideInInspector] public float currentStateEndTime;
+    [HideInInspector]
+    public float currentStateEndTime;
+    public bool overrideRushRangeUsed = false;
 
     [Header("Fallback Search")]
     public EnemyCombatStateBase searchState;
@@ -20,6 +24,11 @@ public class EnemyCombatController : MonoBehaviour
     [Header("Combat Range Settings")]
     public float engageDistance = 5f;
     public float disengageDistance = 10f;
+    public float maxAttackStateDistance = 10f;
+    public float maxStalkStateDistance = 12f;
+    [Header("Rush Behavior Settings")]
+    public float rushCompleteDistance = 2f;
+    public bool completeRushAfterReengageRange = true;
 
     [Header("Combat Vision Settings")]
     public float combatVisionDistance = 12f;
@@ -49,10 +58,49 @@ public class EnemyCombatController : MonoBehaviour
     // Stage 2 additions
     private float nextAvailableStateTime = 0f;
 
+    [Header("Attack Behavior Settings")]
+    public float attackReplanBuffer = 1.5f;
+
+    [Header("Adaptive Behavior Settings")]
+    public bool increaseAggressionAfterFailedAttack = true;
+
+    private bool recentlyFailedAttack = false;
+
+    private Dictionary<string, float> stateCooldowns = new();
+    private Dictionary<string, float> bannedStatesUntil = new();
+    public void NotifyFailedAttack()
+    {
+        if (increaseAggressionAfterFailedAttack)
+            recentlyFailedAttack = true;
+    }
+
+    public void InitializeCombatStates()
+    {
+        if (behaviorProfile == null)
+        {
+            Debug.LogError($"{name} has no behavior profile assigned.");
+            return;
+        }
+
+        foreach (var ws in behaviorProfile.weightedStates)
+        {
+            if (ws.stateComponent == null)
+            {
+                Debug.LogError($"{name} behavior profile contains null stateComponent.");
+            }
+            else
+            {
+                Debug.Log($"{name} registered state: {ws.stateComponent.GetStateName()}");
+            }
+        }
+    }
+
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         weaponController ??= GetComponent<EquippedWeaponController>();
+
+        InitializeCombatStates();
 
         // Auto-assign player if not already set
         if (player == null)
@@ -178,13 +226,8 @@ public class EnemyCombatController : MonoBehaviour
                     continue;
                 }
 
-                if (!next.CanExecute(this))
-                {
-                    string stateName = (next as EnemyCombatStateBase)?.GetStateName() ?? "Unknown";
-                    lastExecutedState = stateName;
-                    Debug.LogWarning($"{name} tried to execute invalid state: {stateName}");
-                    continue;
-                } 
+
+
 
                 lastExecutedState = (next as EnemyCombatStateBase)?.GetStateName() ?? "Unknown";
                 Debug.Log($"{name} is starting behavior: {lastExecutedState}");
@@ -229,13 +272,68 @@ public class EnemyCombatController : MonoBehaviour
         }
     }
 
-    public void EnqueueState(IEnemyCombatState state) => modularCombatQueue.Enqueue(state);
-
-    private EnemyCombatStateBase GetStateByName(string stateName)
+    public void EnqueueState(IEnemyCombatState state)
     {
-        return behaviorProfile.weightedStates
+        string stateName = (state as EnemyCombatStateBase)?.GetStateName() ?? state?.GetType().Name ?? "NULL";
+        if (state == null)
+        {
+            Debug.LogWarning($"{name} Attempted to enqueue NULL state.");
+            return;
+        }
+        if (stateCooldowns.TryGetValue(stateName, out float cooldownUntil) && Time.time < cooldownUntil)
+        {
+            Debug.LogWarning($"{name} Skipping {stateName} due to cooldown. Available again at {cooldownUntil}");
+            return;
+        }
+
+        if (bannedStatesUntil.TryGetValue(stateName, out float bannedUntil) && Time.time < bannedUntil)
+        {
+            Debug.LogWarning($"{name} Skipping {stateName} due to temporary ban. Available again at {bannedUntil}");
+            return;
+        }
+        // Cooldown check for RushStateTest
+        if (stateName == "RushStateTest" && Time.time < nextAvailableStateTime)
+        {
+            Debug.LogWarning($"{name} Skipping RushStateTest due to cooldown. Available again at {nextAvailableStateTime}");
+            return;
+        }
+        if (!state.CanExecute(this))
+        {
+            if (stateName == "RushStateTest" && overrideRushRange)
+            {
+                Debug.LogWarning($"{name} EnqueueState bypassing CanExecute for: {stateName} due to overrideRushRange");
+            }
+            else
+            {
+                Debug.LogWarning($"{name} Attempted to enqueue state that fails CanExecute: {stateName}");
+                return;
+            }
+        }
+
+        Debug.Log($"{name} Enqueued state: {stateName}");
+        modularCombatQueue.Enqueue(state);
+    }
+
+    public void EnqueueForceState(string stateName)
+    {
+        var state = GetStateByName(stateName);
+        if (state == null)
+        {
+            Debug.LogWarning($"{name} attempted to force-enqueue unknown state: {stateName}");
+            return;
+        }
+
+        Debug.Log($"{name} Force-enqueued state: {stateName}");
+        modularCombatQueue.Enqueue(state);
+    }
+
+    public EnemyCombatStateBase GetStateByName(string stateName)
+    {
+        var state = behaviorProfile.weightedStates
             .Select(ws => ws.stateComponent as EnemyCombatStateBase)
             .FirstOrDefault(state => state != null && state.GetStateName() == stateName);
+        Debug.Log($"{name} GetStateByName({stateName}) → {(state == null ? "NULL" : "FOUND")}");
+        return state;
     }
 
     public void FaceTargetLocked()
@@ -263,15 +361,25 @@ public class EnemyCombatController : MonoBehaviour
         }
     }
 
-    private void EnqueueRandomBehaviorState()
+    public void EnqueueRandomBehaviorState()
     {
         if (behaviorProfile == null || behaviorProfile.weightedStates.Count == 0) return;
 
         bool isFirstState = string.IsNullOrEmpty(lastExecutedState);
         EnemyCombatStateBase previousState = GetStateByName(lastExecutedState);
 
+        foreach (var ws in behaviorProfile.weightedStates)
+        {
+            if (ws.stateComponent == null)
+            {
+                Debug.LogWarning($"{name} skipping null stateComponent in behaviorProfile.");
+                continue;
+            }
+        }
+
         var validStates = behaviorProfile.weightedStates
             .Where(ws =>
+                ws.stateComponent != null &&
                 ws.stateComponent is EnemyCombatStateBase state &&
                 state.CanExecute(this) &&
                 (isFirstState || state.CanRunAfter(previousState))
@@ -289,18 +397,30 @@ public class EnemyCombatController : MonoBehaviour
             Debug.Log($"{name} is choosing initial combat state (no previous state).");
         }
 
-        float totalWeight = validStates.Sum(ws => ws.weight);
+        float bonusWeightMultiplier = recentlyFailedAttack ? 1.5f : 1f;
+
+        float totalWeight = validStates.Sum(ws =>
+        {
+            string name = (ws.stateComponent as EnemyCombatStateBase)?.GetStateName();
+            bool isAggressive = name == "AttackStateTest" || name == "RushStateTest";
+            return isAggressive ? ws.weight * bonusWeightMultiplier : ws.weight;
+        });
+
         float roll = Random.Range(0, totalWeight);
         float cumulative = 0f;
 
         foreach (var entry in validStates)
         {
-            cumulative += entry.weight;
+            string name = (entry.stateComponent as EnemyCombatStateBase)?.GetStateName();
+            bool isAggressive = name == "AttackStateTest" || name == "RushStateTest";
+            float effectiveWeight = isAggressive ? entry.weight * bonusWeightMultiplier : entry.weight;
+            cumulative += effectiveWeight;
             if (roll <= cumulative)
             {
                 if (entry.stateComponent is IEnemyCombatState state)
                 {
                     EnqueueState(state);
+                    recentlyFailedAttack = false; // reset once used
                     return;
                 }
             }
@@ -309,12 +429,20 @@ public class EnemyCombatController : MonoBehaviour
 
     private IEnumerator WrapWithVisionCheck(IEnumerator behavior, IEnemyCombatState state)
     {
+        // Save and possibly override combatVisionDistance for RushState
+        float originalVisionDistance = combatVisionDistance;
+        if (lastExecutedState != null && lastExecutedState.Contains("RushState"))
+        {
+            combatVisionDistance = 40f; // Temporarily expand vision range during rush
+        }
+
         timeSincePlayerSeen = 0f;
 
         while (true)
         {
             if (!behavior.MoveNext())
             {
+                combatVisionDistance = originalVisionDistance;
                 Debug.Log($"{name} finished WrapWithVisionCheck for: {lastExecutedState}");
                 yield break;
             }
@@ -324,6 +452,7 @@ public class EnemyCombatController : MonoBehaviour
                 timeSincePlayerSeen += Time.deltaTime;
                 if (timeSincePlayerSeen >= combatLoseTimeout)
                 {
+                    combatVisionDistance = originalVisionDistance;
                     Debug.LogWarning($"{name} lost player mid-behavior: {lastExecutedState}");
                     modularCombatQueue.Clear();
                     DisengageCombat();
@@ -334,6 +463,8 @@ public class EnemyCombatController : MonoBehaviour
             {
                 timeSincePlayerSeen = 0f;
                 lastKnownPlayerPosition = player.position;
+                // If we are in the else branch after losing player, restore vision in case of break
+                // (Not strictly necessary here, but if you want before a yield break, you'd add it)
             }
 
             yield return behavior.Current;
@@ -351,6 +482,8 @@ public class EnemyCombatController : MonoBehaviour
         return angle < combatVisionAngle / 2f && distance <= combatVisionDistance;
     }
 
+    public bool overrideRushRange = false;
+
     private bool TryRetargetPlayer()
     {
         Collider[] hits = Physics.OverlapSphere(transform.position, retargetRadius, playerLayer);
@@ -359,6 +492,7 @@ public class EnemyCombatController : MonoBehaviour
             if (hit.CompareTag("Player"))
             {
                 player = hit.transform;
+                overrideRushRange = true;
                 lastKnownPlayerPosition = player.position;
                 Debug.Log($"{name} re-acquired player via fail-safe retarget.");
                 return true;
@@ -371,4 +505,45 @@ public class EnemyCombatController : MonoBehaviour
     public NavMeshAgent GetAgent() => agent;
     public EquippedWeaponController GetWeaponController() => weaponController;
     public Vector3 GetLastKnownPlayerPosition() => lastKnownPlayerPosition;
+
+    public void RequestInterruptAndReplan()
+    {
+        modularCombatQueue.Clear();
+        EnqueueRandomBehaviorState();
+    }
+
+    public void RegisterStateAbortReason(string reason)
+    {
+        Debug.LogWarning($"{name} aborted combat state: {reason}");
+    }
+
+
+    /// <summary>
+    /// Smoothly rotates this enemy toward a target position at a defined rotation speed and with a maximum turn delta per frame.
+    /// </summary>
+    /// <param name="targetPosition">The world position to rotate toward.</param>
+    /// <param name="rotationSpeed">How fast to rotate (degrees per second).</param>
+    /// <param name="maxTurnDelta">Maximum degrees to turn in a single frame.</param>
+    public void RotateTowardsTarget(Vector3 targetPosition, float rotationSpeed, float maxTurnDelta)
+    {
+        Vector3 direction = (targetPosition - transform.position).normalized;
+        if (direction != Vector3.zero)
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(new Vector3(direction.x, 0, direction.z));
+            float angleDelta = Mathf.Min(rotationSpeed * Time.deltaTime * 100f, maxTurnDelta);
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, angleDelta);
+        }
+    }
+
+    public void SetStateCooldown(string stateName, float cooldownTime)
+    {
+        stateCooldowns[stateName] = Time.time + cooldownTime;
+        Debug.Log($"{name} cooldown set for {stateName} until {stateCooldowns[stateName]}");
+    }
+
+    public void BanStateForSeconds(string stateName, float duration)
+    {
+        bannedStatesUntil[stateName] = Time.time + duration;
+        Debug.Log($"{name} temporarily banned {stateName} until {bannedStatesUntil[stateName]}");
+    }
 }

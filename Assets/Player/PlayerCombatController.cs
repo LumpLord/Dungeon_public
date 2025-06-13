@@ -3,6 +3,7 @@ using System.Collections;
 
 public class PlayerCombatController : MonoBehaviour
 {
+    private Rigidbody rb;
     [Header("References")]
     public EquippedWeaponController weaponController;
 
@@ -90,5 +91,13 @@ public class PlayerCombatController : MonoBehaviour
     private void TryHeavyAttack()
     {
         Debug.Log("[Combat] Heavy Attack Attempted (Mouse5)");
+    }
+    private void Start()
+    {
+        rb = GetComponent<Rigidbody>();
+        if (rb != null)
+        {
+            rb.constraints = RigidbodyConstraints.FreezeRotation;
+        }
     }
 }

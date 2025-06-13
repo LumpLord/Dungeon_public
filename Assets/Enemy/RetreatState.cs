@@ -31,9 +31,13 @@ public class RetreatState : EnemyCombatStateBase
         agent.speed *= retreatSpeedMultiplier;
 
         Vector3 awayDirection = (controller.transform.position - target.position).normalized;
+        // Introduce a small randomized angle to vary retreat direction slightly
+        float angleVariation = Random.Range(-20f, 20f);
+        awayDirection = Quaternion.Euler(0, angleVariation, 0) * awayDirection;
         Vector3 retreatDestination = controller.transform.position + awayDirection * retreatDistance;
 
-        if (NavMesh.SamplePosition(retreatDestination, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+        // Increase allowed area radius from 2f to 3f
+        if (NavMesh.SamplePosition(retreatDestination, out NavMeshHit hit, 3f, NavMesh.AllAreas))
         {
             retreatDestination = hit.position;
         }
@@ -41,6 +45,13 @@ public class RetreatState : EnemyCombatStateBase
         Debug.Log($"{controller.name} Retreat destination calculated: {retreatDestination}");
 
         agent.updateRotation = false; // Disable automatic NavMeshAgent rotation
+        // Abort if retreat destination is too close to current position
+        if (Vector3.Distance(controller.transform.position, retreatDestination) < 0.5f)
+        {
+            Debug.LogWarning($"{controller.name} RetreatState aborted: destination too close to retreat.");
+            endTime = Time.time; // Immediately end the state
+            return;
+        }
         agent.SetDestination(retreatDestination);
 
         Debug.Log($"{controller.name} Retreat destination set: {agent.destination}, agent speed: {agent.speed}");
@@ -64,22 +75,43 @@ public class RetreatState : EnemyCombatStateBase
 
         if (agent == null || !agent.enabled || !agent.isOnNavMesh || target == null || controller == null || controller.gameObject == null || !controller.gameObject.activeInHierarchy)
             yield break;
- 
-        while (Time.time < endTime)
+
+        while (true)
         {
             if (agent == null || !agent.enabled || !agent.isOnNavMesh)
                 yield break;
 
             controller.FaceTargetSmooth();
 
-            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance)
+            if (!agent.pathPending && agent.remainingDistance <= agent.stoppingDistance + 0.25f)
             {
-                Debug.Log($"{controller.name} RetreatState destination reached, idling until duration ends.");
-                Debug.Log($"{controller.name} RetreatState remaining distance: {agent.remainingDistance}, stopping distance: {agent.stoppingDistance}");
+                Debug.Log($"{controller.name} RetreatState destination reached. Exiting early.");
+                break;
             }
 
             yield return null;
         }
+
+        if (agent != null && agent.isOnNavMesh && !agent.updatePosition)
+        {
+            Debug.LogWarning($"{controller.name} RetreatState completed but agent.updatePosition was disabled. Resetting...");
+            agent.updatePosition = true;
+            agent.updateRotation = true;
+            agent.isStopped = false;
+
+            // Instead of snapping to current position, attempt to re-sync gently by warping
+            NavMeshHit hit;
+            if (NavMesh.SamplePosition(controller.transform.position, out hit, 1.0f, NavMesh.AllAreas))
+            {
+                agent.Warp(hit.position);
+                Debug.Log($"{controller.name} RetreatState: agent warped to valid navmesh position at {hit.position}");
+            }
+            else
+            {
+                Debug.LogWarning($"{controller.name} RetreatState: failed to find valid navmesh position near {controller.transform.position}");
+            }
+        }
+
         Debug.Log($"{controller.name} RetreatState duration met or destination reached. Exiting.");
     }
 
@@ -93,12 +125,12 @@ public class RetreatState : EnemyCombatStateBase
 
     public override bool CanExit(EnemyCombatController controller)
     {
-        return Time.time >= endTime;
+        return true;
     }
 
     public override bool CanQueueNextState(EnemyCombatController controller)
     {
-        return Time.time >= endTime;
+        return true;
     }
 
         public override bool CanExecute(EnemyCombatController controller)

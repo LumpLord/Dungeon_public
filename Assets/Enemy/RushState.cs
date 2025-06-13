@@ -1,3 +1,4 @@
+using System.Linq;
 using UnityEngine;
 using UnityEngine.AI;
 using System.Collections;
@@ -9,13 +10,19 @@ public class RushState : EnemyCombatStateBase
     public float maxRushDuration = 1.2f;
     public float minStartDistance = 2f;
     public float maxStartDistance = 15f;
+    public bool ignoreMaxDistance = false;
     //[SerializeField] private float rushStoppingDistance = 1.2f;
     public float minTimeBeforeNextState = 0.75f;
     public float rushStopDistance = 1.5f;
 
-    private float startTime;
-    private float endTime;
-    private bool isRushing;
+    [SerializeField] private float overrideMinDistance = 10f;
+
+    [SerializeField] private float groundDetectionRayDistance = 5.0f;
+    [SerializeField] private LayerMask groundMask;
+
+    public float startTime;
+    public float endTime;
+    public bool isRushing;
 
     public override void EnterState(EnemyCombatController controller)
     {
@@ -25,12 +32,17 @@ public class RushState : EnemyCombatStateBase
         endTime = startTime + maxRushDuration + minTimeBeforeNextState;
         isRushing = true;
 
+        ignoreMaxDistance = false;
+
+        controller.overrideRushRangeUsed = false;
+
         var agent = controller.GetAgent();
         if (agent != null && agent.isOnNavMesh)
         {
+            agent.Warp(controller.transform.position);
             agent.isStopped = true;
-            agent.updatePosition = false;
             agent.updateRotation = false;
+            agent.updatePosition = false;
         }
     }
 
@@ -86,21 +98,18 @@ public class RushState : EnemyCombatStateBase
             yield break;
         }
 
+        int consecutiveFailedFrames = 0;
+
+        Vector3 rushDirection = (target.position - controller.transform.position).normalized;
+        rushDirection.y = 0f;
+        rb.linearVelocity = rushDirection * rushSpeed;
+        Debug.Log($"{controller.name} RushState velocity set once to: {rb.linearVelocity}");
+
         while (Time.time - startTime < maxRushDuration)
         {
             if (target == null || controller == null) break;
 
             controller.FaceTargetSmooth();
-
-            Vector3 currentDirection = (target.position - controller.transform.position).normalized;
-            currentDirection.y = 0;
-
-            Vector3 newVelocity = currentDirection * rushSpeed;
-            if ((rb.linearVelocity - newVelocity).sqrMagnitude > 0.01f)
-            {
-                Debug.Log($"{controller.name} RushState velocity set to: {newVelocity}");
-            }
-            rb.linearVelocity = newVelocity;
 
             float distanceToTarget = Vector3.Distance(controller.transform.position, target.position);
             if (distanceToTarget <= rushStopDistance)
@@ -123,6 +132,88 @@ public class RushState : EnemyCombatStateBase
                 break;
             }
 
+            Vector3 nextPosition = controller.transform.position + rushDirection * Time.deltaTime * rushSpeed;
+            nextPosition.y = controller.transform.position.y; // Option C: Prevent vertical desync
+
+            // Updated ground detection logic
+            float rayOffset = 0.75f;
+            float rayOriginHeight = 0.3f;
+            float dynamicAngleFactor = 1f - Mathf.Clamp(rb.linearVelocity.magnitude / rushSpeed, 0.0f, 1f);
+            float angledRayLength = groundDetectionRayDistance * (5.5f + 2.5f * dynamicAngleFactor) * 0.25f;
+
+            Vector3[] rayOrigins = new Vector3[]
+            {
+                nextPosition + Vector3.up * rayOriginHeight, // Center
+                nextPosition + controller.transform.right * -rayOffset + Vector3.up * rayOriginHeight, // Left
+                nextPosition + controller.transform.right * rayOffset + Vector3.up * rayOriginHeight,  // Right
+                nextPosition + controller.transform.forward * 1.0f + Vector3.up * rayOriginHeight,     // Forward center
+                nextPosition + (controller.transform.forward + controller.transform.right * 0.5f).normalized * 1.0f + Vector3.up * rayOriginHeight, // Forward right
+                nextPosition + (controller.transform.forward - controller.transform.right * 0.5f).normalized * 1.0f + Vector3.up * rayOriginHeight  // Forward left
+            };
+
+            float speedRatio = rb.linearVelocity.magnitude / rushSpeed;
+            float forwardAngle = Mathf.Lerp(90f, 45f, speedRatio);
+            float sideAngle = Mathf.Lerp(75f, 35f, speedRatio);
+
+            // Apply an additional -30 degree adjustment (angle upward by 30 degrees) when stationary
+            Vector3 baseDownward = Quaternion.AngleAxis(forwardAngle - 15f, controller.transform.right) * controller.transform.forward;
+
+            Vector3[] rayDirs = new Vector3[]
+            {
+                Vector3.down,
+                Vector3.down,
+                Vector3.down,
+                baseDownward,
+                Quaternion.AngleAxis(sideAngle, Vector3.up) * baseDownward,
+                Quaternion.AngleAxis(-sideAngle, Vector3.up) * baseDownward
+            };
+
+            int failedRayCount = 0;
+            for (int i = 0; i < rayOrigins.Length; i++)
+            {
+                float currentRayLength = (i >= 3) ? angledRayLength : groundDetectionRayDistance;
+                bool hit = Physics.Raycast(rayOrigins[i], rayDirs[i], out RaycastHit hitInfo, currentRayLength, groundMask);
+                if (!hit) failedRayCount++;
+
+                Debug.DrawRay(rayOrigins[i], rayDirs[i] * currentRayLength, hit ? Color.green : Color.red, 1.0f);
+                if (hit) Debug.DrawLine(rayOrigins[i], hitInfo.point, Color.magenta, 1.0f);
+            }
+
+            bool safeToRush = failedRayCount < 2;
+            if (failedRayCount > 0)
+            {
+                Debug.Log($"{controller.name} HybridGroundCheck → failedRays={failedRayCount}, safeToRush={safeToRush}");
+            }
+
+            if (!safeToRush)
+            {
+                rb.linearVelocity = Vector3.zero;
+
+                if (failedRayCount >= 4)
+                {
+                    Debug.LogWarning($"{controller.name} RushState aborted immediately: Too many failed rays ({failedRayCount})");
+                    isRushing = false;
+                    controller.BanStateForSeconds(this.name, 2f);
+                    controller.SetStateCooldown(this.name, 3f);
+                    yield return new WaitForSeconds(minTimeBeforeNextState);
+                    yield break;
+                }
+
+                consecutiveFailedFrames++;
+                Debug.LogWarning($"{controller.name} RushState ground check failed, retrying next frame... (failedRayCount={failedRayCount})");
+                yield return null;
+                continue;
+            }
+            else
+            {
+                consecutiveFailedFrames = 0;
+            }
+
+            // Recalculate direction and set velocity
+            Vector3 updatedDirection = (target.position - controller.transform.position).normalized;
+            updatedDirection.y = 0f;
+            rb.linearVelocity = updatedDirection * rushSpeed;
+
             yield return null;
         }
 
@@ -138,6 +229,7 @@ public class RushState : EnemyCombatStateBase
     {
         Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
 
+        controller.overrideRushRange = false;
         isRushing = false;
         var rb = controller.GetComponent<Rigidbody>();
         if (rb != null) rb.linearVelocity = Vector3.zero;
@@ -145,6 +237,7 @@ public class RushState : EnemyCombatStateBase
         var agent = controller.GetAgent();
         if (agent != null && agent.isOnNavMesh)
         {
+            agent.Warp(controller.transform.position); // Option B: Resync at end
             agent.updatePosition = true;
             agent.updateRotation = true;
             agent.isStopped = false;
@@ -167,9 +260,27 @@ public class RushState : EnemyCombatStateBase
     public override bool CanExecute(EnemyCombatController controller)
     {
         var target = controller.GetTarget();
-        if (target == null) return false;
+        if (target == null)
+        {
+            Debug.Log($"{controller.name} RushState.CanExecute: target is null");
+            return false;
+        }
 
         float distance = Vector3.Distance(controller.transform.position, target.position);
-        return distance >= minStartDistance && distance <= maxStartDistance;
+        Debug.Log($"{controller.name} RushState.CanExecute: distance={distance}, overrideRushRange={controller.overrideRushRange}");
+
+        if (controller.overrideRushRange && !controller.overrideRushRangeUsed)
+        {
+            Debug.Log($"{controller.name} overrideRushRange is TRUE. Allowing rush at distance {distance}");
+            controller.overrideRushRangeUsed = true;
+            return distance >= overrideMinDistance;
+        }
+
+        bool canExecute = distance >= minStartDistance && distance <= maxStartDistance;
+        if (!canExecute)
+        {
+            Debug.Log($"{controller.name} RushState denied execution: distance={distance} not in range ({minStartDistance}-{maxStartDistance}) and overrideRushRange={controller.overrideRushRange}");
+        }
+        return canExecute;
     }
 }

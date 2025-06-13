@@ -5,6 +5,7 @@ using UnityEngine.AI;
 [CreateAssetMenu(fileName = "NewStalkState", menuName = "AI/Combat States/Stalk")]
 public class StalkState : EnemyCombatStateBase
 {
+    public bool ignoreMaxDistance = false;
     public float circleRadius = 3.5f;
     public float stalkMoveSpeed = 2f;
     public float orbitSpeed = 1f;
@@ -56,6 +57,19 @@ public class StalkState : EnemyCombatStateBase
             if (!controller.PlayerInCombatVision()) yield break;
             if (!agent.enabled || !agent.isOnNavMesh) yield break;
 
+            float distanceToPlayer = Vector3.Distance(controller.transform.position, target.position);
+            if (!ignoreMaxDistance && distanceToPlayer > maxAllowedDistance)
+            {
+                Debug.LogWarning($"{controller.name} aborted stalk: player moved out of range.");
+                var rushState = controller.GetStateByName("RushStateTest");
+                if (rushState != null)
+                {
+                    Debug.Log($"{controller.name} forcibly enqueuing RushState due to stalk abort.");
+                    controller.EnqueueForceState("RushStateTest");
+                }
+                yield break;
+            }
+
             timer += Time.deltaTime;
             angle += direction * orbitSpeed * Time.deltaTime;
 
@@ -84,6 +98,8 @@ public class StalkState : EnemyCombatStateBase
             yield return null;
         }
         Debug.Log($"{controller.name} StalkState: completed execution.");
+        Debug.Log($"{controller.name} forcibly enqueuing RushState after stalk completion.");
+        controller.EnqueueForceState("RushStateTest");
     }
 
     public override void ExitState(EnemyCombatController controller)
@@ -94,6 +110,8 @@ public class StalkState : EnemyCombatStateBase
     public override bool CanExecute(EnemyCombatController controller)
     {
         float distance = Vector3.Distance(controller.transform.position, controller.GetTarget().position);
+        if (ignoreMaxDistance)
+            return distance >= minAllowedDistance;
         return distance >= minAllowedDistance && distance <= maxAllowedDistance;
     }
 

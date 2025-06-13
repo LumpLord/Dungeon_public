@@ -221,7 +221,7 @@ public class EquippedWeaponController : MonoBehaviour
         if (weaponCollider != null)
         {
             weaponCollider.enabled = true;
-            Debug.Log("[Weapon] Damage collider enabled");
+            // Debug.Log("[Weapon] Damage collider enabled");
         }
     }
 
@@ -230,7 +230,7 @@ public class EquippedWeaponController : MonoBehaviour
         if (weaponCollider != null)
         {
             weaponCollider.enabled = false;
-            Debug.Log("[Weapon] Damage collider disabled");
+            // Debug.Log("[Weapon] Damage collider disabled");
         }
     }
 }
