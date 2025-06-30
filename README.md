@@ -15,7 +15,7 @@ This repository showcases modular systems developed for a third-person dungeon R
 
 ---
 
-## What's Included (Public - May 2025)
+## What's Included (Public - July 2025)
 
 ### ✅ Attack Phase System (ScriptableObject-Based)
 - Author attacks using **modular animation phases**
@@ -46,6 +46,22 @@ This repository showcases modular systems developed for a third-person dungeon R
 - Includes basic attack and movement logic:
   - Rush, Stalk, Attack, and Retreat
 - Built to demonstrate how enemy AI can use the **same AttackAssets** as the player
+
+
+## 🔧 Current Features In-Progress
+
+- ✅ Pursuit pathing and behavior gating improved (enemies now verify navigable path before completing pursue state)
+- ✅ Smoothed transition logic between combat states
+- ✅ Basic debug overlays added for behavior state selection
+- ✅ Time toggle and pause features added for debugging
+- 🚧 Blocking & Parry System (weapon hitbox interactions)
+- 🚧 Player stagger / interrupt response
+- 🚧 Enemy attack authoring via shared ScriptableObject pipeline
+- 🚧 Stamina & resource-based combat gating
+- 🚧 Polished impact feedback (camera shake, sound, material reactions)
+- 🔜 Advanced combo logic and AI decision-making
+- 🔜 Magic & ranged system (initial integration)
+- 🔜 Combat data capture system for machine learning analysis
 
 ---
 
