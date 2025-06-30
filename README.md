@@ -48,7 +48,7 @@ This repository showcases modular systems developed for a third-person dungeon R
 - Built to demonstrate how enemy AI can use the **same AttackAssets** as the player
 
 
-## 🔧 Current Features In-Progress
+## Current Features In-Progress
 
 - ✅ Pursuit pathing and behavior gating improved (enemies now verify navigable path before completing pursue state)
 - ✅ Smoothed transition logic between combat states
