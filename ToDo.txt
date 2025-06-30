@@ -1,0 +1,400 @@
+Dungeon (temp title)
+
+3D, Top-Down Multiplayer Roguelike RPG – Project Plan
+
+Document Version
+	•	Version: 1.0
+	•	Last update Date: Jun 30 2025
+
+Author
+	•	Tommy Carter
+
+Table of Contents
+	1.	Overview
+	2.	Step 1: Basic Environment Setup
+	3.	Step 2: Player Character Creation
+	4.	Step 3: User Interface (UI)
+	5.	Step 4: Health & Damage System
+	6.	Step 5: Enemy Character
+	7.	Step 6: Inventory & Loot System
+	8.	Step 7: Multiplayer Integration
+	9.	Step 8: Data Capture Framework
+
+1. Overview
+
+Game Type:
+	•	A 3D, top-down cooperative roguelike RPG supporting up to six players.
+
+Core Prototype Features:
+	•	Basic environment (small, stylized testing ground).
+	•	One initial player character model with basic controls, animations, and UI.
+	•	Simple health and damage system.
+	•	At least one enemy type with basic AI.
+	•	Inventory and loot mechanics.
+	•	Framework for multiplayer co-op.
+	•	Data capture system for logging key gameplay events.
+
+Technical Foundations:
+	•	Engine: Unity 3D.
+	•	Primary Scripting: C#.
+	•	Networking: Flexible approach, likely peer-to-peer with a popular Unity networking solution (e.g., Mirror, Netcode for GameObjects, Photon).
+	•	Data Logging: Initially CSV, with potential to scale to a database solution.
+	•	Art Style: Stylized/low-poly assets for performance and easy iteration.
+
+Scope:
+	•	Minimal store purchases or third-party assets initially; placeholders and free resources are acceptable.
+	•	Code should be clean, modular, and portfolio-ready.
+	•	Future expansions: Additional levels, procedural generation, more enemies, deeper AI, advanced data capture, possible console releases.
+
+2. Step 1: Basic Environment Setup
+
+Below is a detailed plan for creating a simple, stylized environment to serve as our initial testing ground.
+
+2.1 Environment Layout
+	1.	Scene Creation
+	•	Create a new scene (e.g., “TestDungeon” or “PrototypeEnvironment”).
+	•	Keep it clean and focused for debugging and quick iteration.
+	2.	Terrain or Modular Layout
+	•	Decide on using Unity’s Terrain system (ideal for outdoor areas) or modular pieces (ideal for dungeons/caves).
+	•	For a dungeon: Use modular walls, floors, corridors.
+	•	For an outdoor biome: Start with a small Terrain, basic foliage, and minimal detail.
+	3.	Stylized Assets
+	•	Import or create low-poly environment assets (use free resources or ProBuilder if needed).
+	•	Keep textures simple or rely on flat color materials.
+
+2.2 Camera and Lighting
+	1.	Top-Down Camera Setup
+	•	Position the camera at an angle that provides a clear overhead view.
+	•	Consider using Cinemachine for smooth camera movement and follow behavior.
+	2.	Lighting
+	•	Use basic lighting for visibility (e.g., a few point lights if it’s a dark dungeon).
+	•	Keep real-time lights to a minimum for performance.
+	•	Consider adding mild ambient light and possibly basic post-processing (e.g., slight bloom).
+
+2.3 Performance Considerations
+	1.	Occlusion Culling
+	•	Set up occlusion culling for interior layouts to avoid rendering unseen areas.
+	•	Not mandatory initially but beneficial once the environment grows.
+	2.	Level of Detail (LOD)
+	•	For more complex models, set up LOD groups.
+	•	Alternatively, keep everything in a low-poly style to begin with.
+	3.	Minimal FX
+	•	Avoid heavy particle systems or effects at this stage.
+	•	Keep post-processing minimal for clarity.
+
+2.4 Navigation and Colliders
+	1.	Colliders
+	•	Apply box or mesh colliders to floors, walls, and props to prevent clipping.
+	•	Maintain simple collision geometry for easier performance.
+	2.	NavMesh Setup
+	•	Bake a NavMesh if you plan to introduce AI navigation in the environment.
+	•	Keep the layout consistent so the NavMesh doesn’t need constant rebaking.
+
+2.5 Scene Management and Organization
+	1.	Hierarchy Organization
+	•	Group objects under logical empty GameObjects (e.g., _Environment, _Lighting, _Characters).
+	•	Keep naming conventions clear (e.g., “Wall_01,” “Floor_Tile_02”).
+	2.	Prefabs
+	•	Convert repeatable objects (e.g., pillars, doors) into prefabs for easy updates across the scene.
+
+2.6 Prototype Goals in this Environment
+	1.	Player Movement & Camera
+	•	Ensure collisions, camera angles, and movement feel are correct.
+	•	Test basic climbing or jumping if needed (depending on your design).
+	2.	Combat Tests
+	•	Spawn a single enemy to check environment scale, pathfinding, and collision behavior.
+	3.	Networking Tests
+	•	If working on co-op early, connect multiple players to check environment feasibility.
+	4.	Data Logging
+	•	Begin logging simple events (e.g., player position, environment triggers) to ensure the data pipeline works.
+
+3. Step 2: Player Character Creation
+
+3.1 Character Model and Rigging
+	1.	Model Acquisition
+	•	Use a free character model (low-poly or stylized) from the Unity Asset Store or other free sources.
+	•	Alternatively, block out a simple model in a 3D tool (e.g., Blender) for placeholder use.
+	2.	Rigging and Animations
+	•	Ensure the model has a standard rig (e.g., Humanoid Rig in Unity).
+	•	Start with basic animations: Idle, Walk/Run, Attack, perhaps a Death/Downed animation.
+	•	Import animations as separate FBX files or use Unity’s animation retargeting tools.
+
+3.2 Character Controller and Scripts
+	1.	Movement
+	•	Create a PlayerController script to handle top-down movement (WASD, directional input).
+	•	Implement smooth turning based on mouse position or stick direction (if using a gamepad).
+	2.	Animation Integration
+	•	Use Animator Controller to switch between Idle, Walk/Run, Attack states.
+	•	Transition conditions based on velocity, input actions, or triggers.
+	3.	Controls and Input System
+	•	Decide on using Unity’s new Input System or the older Input Manager.
+	•	Map basic movement (WASD/left stick), aim (mouse/right stick), and attack (mouse click/button).
+
+3.3 Character Attributes and Stats
+	1.	Basic Attributes
+	•	Health, stamina (if applicable), mana or energy for abilities.
+	•	Keep track of level, XP, or skill points if relevant.
+	2.	Stat Tracking for ML
+	•	Even at this early stage, you might log data about time spent moving, distance traveled, etc.
+
+3.4 Player Prefab
+	1.	Prefab Creation
+	•	After setting up the model, scripts, and Animator, create a Player prefab.
+	•	This will make it easy to instantiate or modify the player in multiple scenes.
+	2.	Networking Hooks
+	•	If you anticipate multiplayer soon, plan how this prefab will be synchronized across network sessions (e.g., add a NetworkIdentity component if you’re using Mirror).
+
+4. Step 3: User Interface (UI)
+
+4.1 UI Elements
+	1.	Health Bar and Basic HUD
+	•	Display health, resource bars (stamina/mana), and possibly XP.
+	•	Keep it clean and minimal so players have an unobstructed view of the environment.
+	2.	Action Prompts
+	•	Simple text or icon prompts for interactions (e.g., “Press E to pick up item”).
+
+4.2 UI Implementation
+	1.	Canvas Setup
+	•	Use a Screen Space – Overlay or Screen Space – Camera canvas.
+	•	Organize UI elements under logical empty objects (e.g., UI/HealthBar, UI/Inventory).
+	2.	UI Scripting
+	•	Link UI elements to player stats through events or direct references.
+	•	Update health bars or text dynamically when player attributes change.
+
+4.3 UI Scalability
+	1.	Modular Design
+	•	Keep each UI element as a separate prefab if possible (e.g., HealthBar.prefab).
+	•	This allows for easy updates or re-styling later.
+	2.	Multi-Player Support
+	•	Potentially have separate UI for each player if local co-op is supported, or unique UI per client instance for online play.
+
+5. Step 4: Health & Damage System
+
+5.1 Health System
+	1.	Health Component ✓
+	•	A script (e.g., Health.cs) that stores current/max health.
+	•	Handles taking damage, healing, and triggers events when reaching 0 HP.
+	2.	Damage Processing (enemies)✓
+	•	A function, TakeDamage(float damageAmount), to decrease health.
+	•	Optional: Resistances, shields, or armor for deeper complexity.
+	3.  Damage Processing (player)
+
+5.2 Death & Respawn Mechanics
+	1.	Death State 
+	•	Trigger a death animation or “downed” state.
+	•	Possibly remove player control or switch the camera to a spectator view.
+	2.	Respawn Logic
+	•	Decide if respawning occurs at a checkpoint, start of the dungeon, or if it’s permadeath.
+	•	For co-op, consider how other players might resurrect a downed ally.
+
+5.3 Visual and Audio Feedback
+	1.	Damage Indicators
+	•	Flash the screen red or display a “hit” effect on the character.
+	•	Play a hurt sound or animation.
+	2.	UI Updates
+	•	Adjust health bars or show a critical health indicator.
+	•	Log relevant data for difficulty analysis (time of death, location, etc.).
+
+
+5.4 Melee Combat Refinement
+	1. Parry and Block System
+	•	Add parry input with window timing and animation.
+	•	Add block mechanic with stamina or directional resistance.
+	2. Multi-Attack & Combos
+	•	Implement at least one additional player attack.
+	•	Create combo chains for both player and enemies using modular system.
+	•	Allow AI to choose between attacks based on weights or context.
+	3. Combat Movement Tweaks
+	•	Refine close-combat movement to prevent bobbing, jittering.
+	•	Continue improving edge detection and agent recovery during state transitions.
+
+5.5 Stamina, Mana, and Status Effects
+	1. Stamina & Mana System
+	• Add separate stamina and mana resource systems with UI bars.
+	• Use stamina for physical actions (e.g., sprint, block), and mana for magic attacks.
+	• Implement regeneration rates and depletion costs per action.
+	2. Status Effects
+	• Add support for temporary effects (e.g., burn, poison, slow, stun).
+	• Display visual or text indicators when effects are active.
+	• Ensure status durations and stacking logic are handled cleanly.
+	3. Floating Combat Text
+	• Display damage numbers and status effects above characters in combat.
+	• Support color-coding and animation for impact feedback.
+
+6. Step 5: Enemy Character
+
+6.1 Enemy Model & Animations
+	1.	Placeholder Model
+	•	Use a simple enemy model with minimal animations (idle, walk, attack).
+	•	Similar approach to the player: rig if necessary, or use a generic biped rig.
+	2.	Stylized Appearance
+	•	Match the environment’s style, keep it low-poly if possible.
+
+6.2 AI Behavior
+	1.	AI State Machine ✓
+	•	Basic states: Idle, Patrol, Chase, Attack.
+	•	Transition logic for how the enemy decides to chase or attack the player.
+	2.	NavMesh Agent ✓
+	•	Attach a NavMeshAgent to the enemy for pathfinding if using Unity’s navigation system.
+	•	Adjust speed, acceleration, and stopping distance for smooth pursuit.
+	3. Combat State System (Enhanced)
+	• Modularize combat behaviors into ScriptableObject-driven states (Attack, Rush, Stalk, Pursuit, etc).
+	• Add behavior selection system using weighted randomization and contextual gating.
+	• Ensure transitions between states like Pursuit → Stalk or Rush are terrain-aware.
+	• Fix issues like bobbing during pursuit exit or weapon dislodging via Rigidbody tweaks.
+
+
+6.3 Combat Mechanics
+	1.	Attack System ✓
+	•	Simple melee or ranged attacks.
+	•	Trigger damage to the player using the same Health & Damage script.
+	2.	Difficulty and Scaling
+	•	Optionally scale enemy damage or health over time or based on player level.
+	•	Log data about how quickly enemies are defeated or how much damage they deal.
+	3. Complex Weapon Behavior
+	• Add support for bounce, follow-through, pass-through, or block-on-hit mechanics per weapon.
+	• Customize hit reaction logic depending on the phase and swing trajectory.
+
+	4. Enemy Group Logic
+	• Implement group awareness among enemies (e.g., spacing, waiting turns to attack).
+	• Prevent overcrowding; enable coordination like flanking or surrounding the player.
+	• Possibly add enemy communication (e.g., alerting nearby allies).
+
+	5. Ranged Combat
+	• Add basic ranged enemy archetype (archer, mage, etc.).
+	• Implement projectile logic, aiming behavior, and line-of-sight checks.
+	• Create variations in projectile speed, spread, and delay.
+
+	6. Magic System (Prototype)
+	• Allow casting of simple spells using mana.
+	• Add visual and audio effects to distinguish spell types.
+	• Add cooldowns, cast times, and range checks per spell.
+
+6.4 Enemy Prefab
+	1.	Prefab Creation
+	•	Combine the model, AI scripts, and collider into a prefab for easy spawns.
+	•	Mark it as a networked object if required for multiplayer (later steps).
+	2.	Spawning
+	•	Create a simple spawn script or manager that places enemies in the scene.
+	•	Consider randomizing spawn points for replayability.
+
+7. Step 6: Inventory & Loot System
+
+7.1 Item Data Structure
+	1.	Scriptable Objects
+	•	Consider using ScriptableObjects to store item attributes (e.g., name, icon, stats).
+	•	Helps keep data organized and flexible.
+	2.	Item Types
+	•	Weapons, armor, consumables, quest items, currency, etc.
+	•	Start with a small variety (e.g., a sword, health potion).
+
+7.2 Inventory UI
+	1.	Inventory Panel
+	•	A simple grid or list view showing player’s items.
+	•	Drag-and-drop functionality if desired (may be introduced later).
+	2.	Equip & Use Mechanics
+	•	On equip, update player stats or visuals.
+	•	On use (e.g., potion), call relevant healing or buff scripts.
+
+7.3 Loot Drops
+	1.	Enemy Drops
+	•	When an enemy dies, randomly generate loot from a defined drop table.
+	•	For co-op, decide whether loot is shared, instanced, or first-come-first-serve.
+	2.	Environment Loot
+	•	Simple chests or breakable objects that yield random items.
+	•	Use the same scriptable object references to maintain consistency.
+
+7.4 Data Tracking
+	1.	Pickup Logging
+	•	Log items the player picks up, frequency of usage, or time to find.
+	•	Useful for balancing and ML analysis.
+
+8. Step 7: Multiplayer Integration
+
+8.1 Network Solution Exploration
+	1.	Mirror / Netcode for GameObjects / Photon
+	•	Evaluate which networking toolset aligns best with your skill level and budget.
+	•	Check licensing constraints and community support.
+	2.	Peer-to-Peer Setup
+	•	If focusing on co-op among friends, peer-to-peer might suffice.
+	•	Keep in mind potential synchronization issues, NAT punch-through, etc.
+
+8.2 Syncing Core Systems
+	1.	Player Spawning
+	•	Create a lobby or direct join method.
+	•	Ensure each connected player spawns their own character instance.
+	2.	State Synchronization
+	•	Ensure that health, position, animations, and items are properly synced across clients.
+	•	Consider authoritative vs. non-authoritative setups.
+
+8.3 Testing and Debugging
+	1.	Local Network Testing
+	•	Use multiple editor instances or builds on the same LAN.
+	•	Check for latency, data packet correctness, and stable connections.
+	2.	Error Handling
+	•	Plan for disconnections, re-joins, host migration (if needed).
+	•	Keep logs of network events for debugging.
+
+9. Step 8: Data Capture Framework
+
+9.1 Logging Events (Expanded)
+	1. Combat Data
+	• Log attack types, combos used, damage dealt and received.
+	• Track parry/block success and timing.
+	2. AI Behavior
+	• Record which combat states are chosen, how often, and outcomes.
+	• Track enemy positioning, stuck detection, and movement anomalies.
+	3. Player Interaction
+	• Log all pickups, movement distances, state transitions, and interaction triggers.
+	4.	CSV-Based Logging ✓
+	•	Start with simple logs of key events (damage dealt, enemy spawns, item pickups).
+	•	Each event writes a row with a timestamp and relevant data fields (e.g., “PlayerID, EnemyType, DamageAmount”).
+	5.	Analytics Manager
+	•	Centralize logging calls in an AnalyticsManager or similar class.
+	•	For example, AnalyticsManager.LogEvent("EventName", eventDataDictionary).
+
+9.2 Scaling Up
+	• Ensure data logs correlate events across actors (PlayerID, EnemyID, EventTime).
+	• Build queryable structure: CSV per session or per match.
+	• Enable export for ML analysis of combat pacing and challenge.
+
+9.3 Security and Privacy
+	1.	Player Data Privacy
+	•	If you collect personal data, ensure compliance with relevant regulations.
+	•	For a private project, likely minimal concerns, but keep it in mind for a public release.
+	2.	Server Costs and Infrastructure
+	•	Consider server hosting fees if you expand beyond local tests.
+	•	Plan for robust data backups or concurrency if many players join.
+
+Next Steps
+	1.	Begin with Step 1:
+	•	Set up the basic environment in Unity.
+	•	Create a new scene and populate it with placeholder meshes or a simple Terrain.
+	•	Set up camera, lighting, colliders, and (optional) basic NavMesh.
+	2.	Iterate Quickly:
+	•	Once the environment is in place, move on to Player Character Creation (Step 2) and ensure movement, animations, and environment collision are all functional.
+	3.	Document and Commit:
+	•	Keep track of progress in a version control system (GitHub).
+	•	Make incremental commits showcasing each milestone.
+
+Digging into Step 1: Environmental Layout
+
+Now that we have an overall plan, let’s focus on Step 1 in practice. We already have an outline above, but we can expand on actual implementation tips:
+	1.	Project Organization
+	•	In Unity, create folders like Scenes, Scripts, Prefabs, Materials, Models.
+	•	Place your TestDungeon scene in Scenes.
+	2.	Quick Blockout
+	•	If doing a dungeon: Use ProBuilder to create floor tiles, walls, or corridors. Snap them together to form a basic layout.
+	•	If doing an outdoor area: Create a small Terrain, paint a few textures, and add minimal 3D assets (trees, rocks) if desired.
+	3.	Lighting Setup
+	•	Add a Directional Light if outdoors, or a few Point Lights/Spot Lights if indoors.
+	•	Confirm shadows are not too dark; check the Environment Lighting settings under Window > Rendering > Lighting.
+	4.	Camera Placement
+	•	Use a Cinemachine Virtual Camera if you want an easy follow system once your player is in place.
+	•	Alternatively, just manually position your Main Camera above the level, angled downward.
+	5.	Testing
+	•	Ensure you can walk around the environment (even using a temporary cube as a “player placeholder”) to confirm collisions.
+	•	Evaluate performance by checking the Stats window (top-left in Game view).
+	6.	NavMesh Baking (Optional at this stage)
+	•	If you plan to have enemies soon, set your floor or ground objects to Navigation Static and bake a NavMesh from the Navigation window.
+	•	This ensures future AI can navigate properly.
