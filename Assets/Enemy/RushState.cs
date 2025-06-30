@@ -98,7 +98,8 @@ public class RushState : EnemyCombatStateBase
             yield break;
         }
 
-        int consecutiveFailedFrames = 0;
+        float failureGraceTime = 0.25f;
+        float failureTimer = 0f;
 
         Vector3 rushDirection = (target.position - controller.transform.position).normalized;
         rushDirection.y = 0f;
@@ -187,26 +188,49 @@ public class RushState : EnemyCombatStateBase
 
             if (!safeToRush)
             {
+                failureTimer += Time.deltaTime;
                 rb.linearVelocity = Vector3.zero;
 
-                if (failedRayCount >= 4)
+                Debug.LogWarning($"{controller.name} RushState ground check failed... (failedRayCount={failedRayCount}, graceTimer={failureTimer:F2})");
+
+                if (failedRayCount >= 4 || failureTimer >= failureGraceTime)
                 {
-                    Debug.LogWarning($"{controller.name} RushState aborted immediately: Too many failed rays ({failedRayCount})");
+                    Debug.LogWarning($"{controller.name} RushState aborted: Unsafe terrain or grace timeout.");
                     isRushing = false;
-                    controller.BanStateForSeconds(this.name, 2f);
-                    controller.SetStateCooldown(this.name, 3f);
+
+                    float fallbackDistanceToTarget = Vector3.Distance(controller.transform.position, target.position);
+                    float fallbackDistanceThreshold = 6f;
+                    if (fallbackDistanceToTarget < fallbackDistanceThreshold)
+                    {
+                        controller.EnqueueWeightedFallback(new (IEnemyCombatState, float)[]
+                        {
+                            ((IEnemyCombatState)controller.GetStateByName("AttackState"), 0.3f),
+                            ((IEnemyCombatState)controller.GetStateByName("StalkState"), 0.7f)
+                        });
+                    }
+                    else
+                    {
+                        var pursuitState = controller.GetStateByName("PursuitState");
+                        if (pursuitState != null)
+                        {
+                            controller.EnqueueState(pursuitState);
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"{controller.name} RushState: PursuitState is null and could not be enqueued.");
+                        }
+                    }
+
                     yield return new WaitForSeconds(minTimeBeforeNextState);
                     yield break;
                 }
 
-                consecutiveFailedFrames++;
-                Debug.LogWarning($"{controller.name} RushState ground check failed, retrying next frame... (failedRayCount={failedRayCount})");
                 yield return null;
                 continue;
             }
             else
             {
-                consecutiveFailedFrames = 0;
+                failureTimer = 0f; // Reset timer on success
             }
 
             // Recalculate direction and set velocity

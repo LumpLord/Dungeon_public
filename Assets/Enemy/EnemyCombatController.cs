@@ -93,6 +93,13 @@ public class EnemyCombatController : MonoBehaviour
                 Debug.Log($"{name} registered state: {ws.stateComponent.GetStateName()}");
             }
         }
+
+        // Confirm that PursuitState is registered
+        var pursuit = GetStateByName("PursuitState");
+        if (pursuit == null)
+            Debug.LogWarning($"{name} PursuitState not found in behavior profile. Ensure it's included for fallback logic.");
+        else
+            Debug.Log($"{name} PursuitState registered successfully.");
     }
 
     void Start()
@@ -327,6 +334,19 @@ public class EnemyCombatController : MonoBehaviour
         modularCombatQueue.Enqueue(state);
     }
 
+    public void EnqueueWeightedFallback((IEnemyCombatState state, float weight)[] weightedOptions)
+    {
+        var chosen = WeightedRandomSelector.Choose(weightedOptions);
+        if (chosen != null)
+        {
+            EnqueueState(chosen);
+        }
+        else
+        {
+            Debug.LogWarning($"{name} EnqueueWeightedFallback failed to select a valid state.");
+        }
+    }
+
     public EnemyCombatStateBase GetStateByName(string stateName)
     {
         var state = behaviorProfile.weightedStates
@@ -368,6 +388,7 @@ public class EnemyCombatController : MonoBehaviour
         bool isFirstState = string.IsNullOrEmpty(lastExecutedState);
         EnemyCombatStateBase previousState = GetStateByName(lastExecutedState);
 
+        // Debug log: listing all candidate states
         foreach (var ws in behaviorProfile.weightedStates)
         {
             if (ws.stateComponent == null)
@@ -376,15 +397,36 @@ public class EnemyCombatController : MonoBehaviour
                 continue;
             }
         }
+        Debug.Log($"{name} evaluating {behaviorProfile.weightedStates.Count} behavior states...");
 
         var validStates = behaviorProfile.weightedStates
             .Where(ws =>
-                ws.stateComponent != null &&
-                ws.stateComponent is EnemyCombatStateBase state &&
-                state.CanExecute(this) &&
-                (isFirstState || state.CanRunAfter(previousState))
-            )
+            {
+                if (ws.stateComponent == null)
+                {
+                    Debug.LogWarning($"{name} skipping null stateComponent in behaviorProfile.");
+                    return false;
+                }
+
+                var state = ws.stateComponent as EnemyCombatStateBase;
+                if (!state.CanExecute(this))
+                {
+                    Debug.LogWarning($"{name} rejected state {state.GetStateName()} — failed CanExecute.");
+                    return false;
+                }
+
+                if (!isFirstState && !state.CanRunAfter(previousState))
+                {
+                    Debug.LogWarning($"{name} rejected state {state.GetStateName()} — cannot run after {previousState?.GetStateName()}.");
+                    return false;
+                }
+
+                Debug.Log($"{name} accepted state {state.GetStateName()} with weight {ws.weight}.");
+                return true;
+            })
             .ToList();
+
+        Debug.Log($"{name} found {validStates.Count} valid states after filtering.");
 
         if (validStates.Count == 0)
         {
@@ -401,8 +443,8 @@ public class EnemyCombatController : MonoBehaviour
 
         float totalWeight = validStates.Sum(ws =>
         {
-            string name = (ws.stateComponent as EnemyCombatStateBase)?.GetStateName();
-            bool isAggressive = name == "AttackStateTest" || name == "RushStateTest";
+            string sname = (ws.stateComponent as EnemyCombatStateBase)?.GetStateName();
+            bool isAggressive = sname == "AttackStateTest" || sname == "RushStateTest";
             return isAggressive ? ws.weight * bonusWeightMultiplier : ws.weight;
         });
 
@@ -411,9 +453,10 @@ public class EnemyCombatController : MonoBehaviour
 
         foreach (var entry in validStates)
         {
-            string name = (entry.stateComponent as EnemyCombatStateBase)?.GetStateName();
-            bool isAggressive = name == "AttackStateTest" || name == "RushStateTest";
+            string sname = (entry.stateComponent as EnemyCombatStateBase)?.GetStateName();
+            bool isAggressive = sname == "AttackStateTest" || sname == "RushStateTest";
             float effectiveWeight = isAggressive ? entry.weight * bonusWeightMultiplier : entry.weight;
+            Debug.Log($"{name} rolling {roll:F2} against cumulative {cumulative:F2} for state {sname} (weight: {effectiveWeight:F2})");
             cumulative += effectiveWeight;
             if (roll <= cumulative)
             {
