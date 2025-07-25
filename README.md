@@ -13,71 +13,122 @@ This repository showcases modular systems developed for a third-person dungeon R
 > 🔒 This project powers a private, in-development RPG with full player, enemy, and animation systems.  
 > For details or collaboration inquiries, reach out via GitHub or @LordLump.
 
+# Project plan and timelines
+| # | Work‑stream | Start | Finish | Work Days |
+|---|-------------|-------|--------|-----------|
+| **1** | ✔ Playability polish (done) | 21 Jul 2025 | **24 Jul 2025** | 4 |
+| **2** | Character model & basic anims | 28 Jul 2025 | 01 Aug 2025 | 5 |
+| **3** | Animancer Pro migration (partial) | 04 Aug 2025 | 08 Aug 2025 | 5 |
+| **4** | Block / Parry mechanic | 11 Aug 2025 | 19 Aug 2025 | 7 |
+| **5** | Damage‑Type & R‑P‑S system | 20 Aug 2025 | 02 Sep 2025 | 10 |
+| **6** | Instrumentation & Logger v1 | 03 Sep 2025 | 09 Sep 2025 | 5 |
+| **7** | Simple analytics dashboard | 10 Sep 2025 | 11 Sep 2025 | 2 |
+| **8** | Versioned balance data | 12 Sep 2025 | 15 Sep 2025 | 2 |
+| **9** | Automated test harness | 16 Sep 2025 | 25 Sep 2025 | 8 |
+| **10** | DunGen procedural arenas | 26 Sep 2025 | 30 Sep 2025 | 3 |
+| **11** | Variable‑sweep tool | 01 Oct 2025 | 10 Oct 2025 | 8 |
+| **12** | Enemy repertoire upgrade | 13 Oct 2025 | 20 Oct 2025 | 6 |
+| **13** | Data‑capture arena (Modular Castle kit) | 21 Oct 2025 | 23 Oct 2025 | 3 |
 ---
 
-## What's Included (Public - July 2025)
+## What's Included (Public – July 2025)
 
-### ✅ Attack Phase System (ScriptableObject-Based)
-- Author attacks using **modular animation phases**
-- Each phase defines:
-  - Position/rotation offset
-  - Duration
-  - Custom interpolation curve
-  - Damage curve (e.g. sweet spots)
-  - Combo window and behavior
+### Core Gameplay
+- **Third-person controller** with free orbit camera & optional **lock-on mode** (target cycle, auto-unlock on death)
+- Player movement: idle ⇄ walk/run, jump, **directional dodge** (Left Alt)
+- **Projectile & launcher** system – cooldown, physics/hitscan, damage + hit-point forwarding
+- Cursor-lock helper and aim/lock **UI reticle**
 
-### ✅ Equipped Weapon Controller
-- Interprets `AttackAsset` data to animate weapons in code
-- Supports:
-  - **Chained combos**
-  - Damage triggering via collider
-  - Returning to a guard pose
-  - Auto-queue of next attack on input
+### Modular Combat Toolkit
+- **Attack Phase / Attack Asset** ScriptableObject pipeline  
+  *Pose → phase → combo* authoring with custom curves & damage windows
+- **Equipped Weapon Controller** → real-time phase blending, combo queue, collider-based hits
+- **Weapon Pose / Phase Editors** – in-scene handles, curve preview, batch save
 
-### ✅ Custom Weapon Pose Editor
-- Unity Editor window to:
-  - Pose a weapon in-scene
-  - Save that pose to an attack phase
-  - Preview per-phase animation steps
-- Streamlines animation design for non-animator designers
+### Enemy AI Framework
+- **EnemyCombatController** with weighted, modular **state machine**  
+  _States shipped_: Pursuit · Rush · Stalk · Attack · Retreat · **Investigate** (on distant hit)
+- Cooldowns, “allowed-previous” gates, fail-safe re-targeting & rich debug logging
+- NavMesh-aware path validation and auto-charge when far from player
 
-### ✅ Lightweight Enemy Combat AI
-- Example `EnemyCombatController` and modular behavior states for AI coordination
-- Includes basic attack and movement logic:
-  - Rush, Stalk, Attack, and Retreat
-- Built to demonstrate how enemy AI can use the **same AttackAssets** as the player
+### Health & Damage
+- `HealthComponent` ( `OnDamaged(amount,type,source,hitPoint)`  · `OnDeath`  · `IsAlive` )
+- `DamageType` enum + `IDamageable` interface – ready for rock-paper-scissors extensions
+- Tiny‐health variant for props & projectiles
 
+### Camera & UX
+- Cinemachine shoulder cam with roll-free orbit; smooth blends on mode switch
+- **Lock-on virtual camera** (TargetGroup + Position/Rotation composers) keeps player foregrounded
+- In-world **Billboard UI** health bars
+
+### Utilities & Tooling
+- **TimeToggle** (pause / 0.25 × slow-mo), auto-bake NavMesh helper, patrol-point & dungeon-tile spawners
+- Public-safe **sync script** with interactive new-file prompt
+- Consistent, timestamped debug logs for state transitions and damage events
 
 ## Current Features In-Progress
 
-- ✅ Pursuit pathing and behavior gating improved (enemies now verify navigable path before completing pursue state)
-- ✅ Smoothed transition logic between combat states
-- ✅ Basic debug overlays added for behavior state selection
-- ✅ Time toggle and pause features added for debugging
-- 🚧 Blocking & Parry System (weapon hitbox interactions)
-- 🚧 Player stagger / interrupt response
-- 🚧 Enemy attack authoring via shared ScriptableObject pipeline
-- 🚧 Stamina & resource-based combat gating
-- 🚧 Polished impact feedback (camera shake, sound, material reactions)
-- 🔜 Advanced combo logic and AI decision-making
-- 🔜 Magic & ranged system (initial integration)
-- 🔜 Combat data capture system for machine learning analysis
+---
+
+## Next Phase — Character Model + Basic Animations (28 Jul → 01 Aug 2025)
+
+| Goal | Detail |
+|------|--------|
+| 1: Replace capsule | Swap player prefab mesh with Bozo Modular humanoid, preserve sockets |
+| 2: Core locomotion | Idle ↔ Walk/Run, jump, dodge, death wired via **Animancer** |
+| 3: Light / heavy attacks | Hook RPG AnimPack clips (One‑Hand Slash A, Overhead) into existing combo system |
+| 4: Hit‑react & stagger | Blend‑tree for flinch ⇄ stagger, interrupt on damage |
+| 5: Enemy baseline | Convert one enemy prefab to new avatar, confirm retargeting |
+
+_Target: playable scene with full humanoid animations by **Fri 01 Aug 2025***_
 
 ---
 
-## 📁 Repo Structure
+## 📁 Repo Structure (July 2025)
 
-- `Assets/Combat/`
-  - `AttackAssets/` – Attack combos and phases
-  - `AttackPhases/` – Individual attack phase data
-  - `EquippedWeaponController.cs` – Controls weapon behavior
-  - `DamageSource.cs` – Core dependency for combat logic
-- `Assets/Editor/`
-  - `WeaponPoseEditor.cs` – Editor tool for posing and authoring attacks
-- `Assets/Enemy/`
-  - Enemy-related scripts and AI logic (Rush, Attack, Stalk, Retreat, etc.)
-- `Assets/Player/`
-  - Player control and combat handling scripts
+```
+Assets/
+├─ Combat/
+│  ├─ AttackAssets/            # ScriptableObject combos (e.g. OneHandGuard*)
+│  ├─ AttackPhases/            # Individual phase SOs
+│  ├─ DamageSource.cs          # Base damage provider
+│  ├─ DamageType.cs            # Enum & helpers
+│  ├─ Projectile.cs            # Hit‑scan & physics projectiles
+│  ├─ AttackPhase.cs           # Serializable phase data container
+│  ├─ EquippedWeaponController.cs
+│  └─ ProjectileLauncher.cs
+├─ Editor/
+│  ├─ WeaponPoseEditor.cs      # In‑scene pose & save
+│  ├─ AttackPhaseSetterEditor.cs
+│  ├─ TimeToggle.cs            # Pause / slo‑mo toggle
+│  └─ WeaponPoseEditor_AutoAssign.cs
+├─ Enemy/
+│  ├─ EnemyCombatController.cs
+│  ├─ EnemyRoamer.cs
+│  ├─ PursuitState.cs · RushState.cs · RetreatState.cs · …
+│  ├─ InvestigateState.asset   # New AI state ScriptableObject
+│  └─ EnemyCombatBehaviorProfile.cs
+├─ Player/
+│  ├─ PlayerController.cs
+│  ├─ PlayerCombatController.cs
+│  ├─ PlayerMovementStats.asset
+│  ├─ PickupPromptUI.cs
+│  └─ WeaponPickup.cs
+├─ Scripts/
+│  ├─ Combat/                  # Mirror of Assets/Combat for test‑only logic
+│  ├─ Utilities/
+│  │   ├─ CameraUtil.cs
+│  │   ├─ LockOnController.cs · LockOnCameraRig.cs · LockOnCameraAlign.cs
+│  │   └─ CursorLockHelper.cs
+│  ├─ DungeonTileSpawner.cs
+│  ├─ PatrolPointSpawnerManager.cs
+│  ├─ HealthComponent.cs
+│  ├─ Tiny_HealthComponent.cs  # Minimal health for props
+│  ├─ WeaponManager.cs
+│  └─ BillboardUI.cs
+└─ Instances/                  # ScriptableObject singletons (stats, states)
+```
+(Only key files shown.)
 
 ---
 
@@ -89,7 +140,7 @@ This repository showcases modular systems developed for a third-person dungeon R
 
 ---
 
-## 🧙 Author
+## Author
 
 Created by **LordLump** (April 2025–present)  
 Follow the development of the full game on the [private Dungeon repository].
@@ -104,6 +155,14 @@ Feel free to use, modify, and share – attribution appreciated!
 ---
 
 ## Changelog
+
+### July 24 – 25, 2025  (playability‑polish milestone)
+- Lock‑on camera system (VCam + target‑group) with auto‑unlock on death
+- Projectile & launcher framework with cooldown, hit‑point forwarding
+- Directional dodge (Left Alt) and player‑relative movement refactor
+- InvestigateState + stay‑engaged timer; enemies react to distant hits
+- HealthComponent expanded (OnDamaged⟨amount,type,source,hit⟩, IsAlive, OnDeath)
+- NavMeshAgent rotation restored on combat exit; zero‑roll shoulder cam
 
 ### June 30, 2025
 - Modular AI combat behaviors stabilized with PursuitState improvements (navmesh validation, movement smoothing)
