@@ -18,5 +18,8 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 51c04a7bfc31c45499368725cb6526c8, type: 2}
   - {fileID: 11400000, guid: d129275ff56594726b89d49021e08861, type: 2}
   - {fileID: 11400000, guid: ceddc997f0f0441eabe9a6454abf3a7a, type: 2}
-  comboAttacks:
-  - {fileID: 11400000, guid: 6f433b0b9fcf2401899dee253b26e672, type: 2}
+  comboMap:
+  - inputName: Mouse0
+    nextAttack: {fileID: 11400000, guid: 6f433b0b9fcf2401899dee253b26e672, type: 2}
+  - inputName: Mouse3
+    nextAttack: {fileID: 11400000, guid: 413fddba99a294db18ee044e8be1d48d, type: 2}

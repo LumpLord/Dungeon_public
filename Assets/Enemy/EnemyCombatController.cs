@@ -3,12 +3,15 @@ using UnityEngine.AI;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+//using HealthSystem;   
 
 
 
 [RequireComponent(typeof(NavMeshAgent))]
 public class EnemyCombatController : MonoBehaviour
 {
+    [Header("Debug Settings")]
+    public bool debugEnabled = false;
     [HideInInspector]
     public float currentStateEndTime;
     public bool overrideRushRangeUsed = false;
@@ -40,6 +43,7 @@ public class EnemyCombatController : MonoBehaviour
     public EnemyCombatBehaviorProfile behaviorProfile;
     public EnemyCombatStateBase searchFallbackState;
 
+    private HealthComponent health;
     private NavMeshAgent agent;
     private bool isEngaged = false;
     private Coroutine stateRoutine;
@@ -64,7 +68,13 @@ public class EnemyCombatController : MonoBehaviour
     [Header("Adaptive Behavior Settings")]
     public bool increaseAggressionAfterFailedAttack = true;
 
+    [Header("Hit Engage Hold")]
+    [Tooltip("Seconds to remain in combat after taking damage, regardless of distance.")]
+    public float hitEngageHoldTime = 5f;
+    private float stayEngagedUntil = 0f;
+
     private bool recentlyFailedAttack = false;
+    private Vector3 investigatePoint;
 
     private Dictionary<string, float> stateCooldowns = new();
     private Dictionary<string, float> bannedStatesUntil = new();
@@ -78,7 +88,10 @@ public class EnemyCombatController : MonoBehaviour
     {
         if (behaviorProfile == null)
         {
-            Debug.LogError($"{name} has no behavior profile assigned.");
+            if (debugEnabled)
+            {
+                Debug.LogError($"{name} has no behavior profile assigned.");
+            }
             return;
         }
 
@@ -86,26 +99,46 @@ public class EnemyCombatController : MonoBehaviour
         {
             if (ws.stateComponent == null)
             {
-                Debug.LogError($"{name} behavior profile contains null stateComponent.");
+                if (debugEnabled)
+                {
+                    Debug.LogError($"{name} behavior profile contains null stateComponent.");
+                }
             }
             else
             {
-                Debug.Log($"{name} registered state: {ws.stateComponent.GetStateName()}");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{name} registered state: {ws.stateComponent.GetStateName()}");
+                }
             }
         }
 
         // Confirm that PursuitState is registered
         var pursuit = GetStateByName("PursuitState");
         if (pursuit == null)
-            Debug.LogWarning($"{name} PursuitState not found in behavior profile. Ensure it's included for fallback logic.");
+        {
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} PursuitState not found in behavior profile. Ensure it's included for fallback logic.");
+            }
+        }
         else
-            Debug.Log($"{name} PursuitState registered successfully.");
+        {
+            if (debugEnabled)
+            {
+                Debug.Log($"{name} PursuitState registered successfully.");
+            }
+        }
     }
 
     void Start()
     {
         agent = GetComponent<NavMeshAgent>();
         weaponController ??= GetComponent<EquippedWeaponController>();
+
+        health = GetComponent<HealthComponent>();
+        if (health != null)
+            health.OnDamaged += HandleDamaged;
 
         InitializeCombatStates();
 
@@ -116,14 +149,38 @@ public class EnemyCombatController : MonoBehaviour
             if (foundPlayer != null)
             {
                 player = foundPlayer.transform;
-                Debug.Log($"{name} auto-assigned player: {player.name}");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{name} auto-assigned player: {player.name}");
+                }
             }
             else
             {
-                Debug.LogWarning($"{name} could not auto-assign player — no GameObject with tag 'Player' found.");
+                if (debugEnabled)
+                {
+                    Debug.LogWarning($"{name} could not auto-assign player — no GameObject with tag 'Player' found.");
+                }
             }
         }
     }
+    private void HandleDamaged(float dmg, DamageType type, GameObject source, Vector3 hitPoint)
+    {
+        // Prevent immediate disengage for a short period
+        stayEngagedUntil = Time.time + hitEngageHoldTime;
+
+        // Cache where the hit landed for InvestigateState
+        investigatePoint = hitPoint;
+
+        if (!isEngaged && source != null && source.CompareTag("Player"))
+        {
+            EnterCombat(source.transform);
+            ForceChargeIfFar();
+
+            // Queue an investigate state when combat starts from a distant hit
+            EnqueueForceState("InvestigateState");
+        }
+    }
+
 
     void Update()
     {
@@ -135,9 +192,11 @@ public class EnemyCombatController : MonoBehaviour
         {
             EngageCombat();
         }
-        else if (isEngaged && distToPlayer >= disengageDistance)
+        else if (isEngaged && Time.time >= stayEngagedUntil && distToPlayer >= disengageDistance)
         {
             DisengageCombat();
+            agent.updateRotation = true;
+
         }
     }
 
@@ -148,14 +207,41 @@ public class EnemyCombatController : MonoBehaviour
         weaponController ??= GetComponent<EquippedWeaponController>();
         player = target;
         EngageCombat();
-        Debug.Log($"{name} has entered combat mode against: {target.name}");
+        // Ensure enemy closes gap if combat starts at long distance
+        ForceChargeIfFar();
+        if (debugEnabled) 
+        {
+            Debug.Log($"{name} has entered combat mode against: {target.name}");
+        }
+    }
+
+    /// <summary>
+    /// Immediately enqueue a rush / pursuit state when the player is out of normal engage range.
+    /// </summary>
+    private void ForceChargeIfFar()
+    {
+        float dist = Vector3.Distance(transform.position, player.position);
+        if (dist > engageDistance)
+        {
+            // Allow rush state to execute even outside its normal range
+            overrideRushRange = true;
+
+            // Prefer RushStateTest; fall back to PursuitState if not present
+            if (GetStateByName("RushStateTest") != null)
+                EnqueueForceState("RushStateTest");
+            else if (GetStateByName("PursuitState") != null)
+                EnqueueForceState("PursuitState");
+        }
     }
 
     public void EngageCombat()
     {
         if (isInCombat) return;
 
-        Debug.Log($"{name} EngageCombat() called with target: {(player != null ? player.name : "NULL")}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} EngageCombat() called with target: {(player != null ? player.name : "NULL")}");
+        }
         isEngaged = true;
         timeSincePlayerSeen = 0f;
 
@@ -179,13 +265,19 @@ public class EnemyCombatController : MonoBehaviour
         }
 
         modularCombatQueue.Clear();
-        Debug.Log($"{name} disengaging from combat. Returning to patrol.");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} disengaging from combat. Returning to patrol.");
+        }
         OnCombatDisengaged?.Invoke();
     }
 
     IEnumerator ModularCombatLoop()
     {
-        Debug.Log($"{name} started ModularCombatLoop. Target is {(player != null ? player.name : "NULL")}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} started ModularCombatLoop. Target is {(player != null ? player.name : "NULL")}");
+        }
 
         while (isEngaged)
         {
@@ -198,7 +290,10 @@ public class EnemyCombatController : MonoBehaviour
 
                 if (timeSincePlayerSeen >= combatLoseTimeout)
                 {
-                    Debug.LogWarning($"{name} lost player. Initiating fallback search...");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} lost player. Initiating fallback search...");
+                    }
                     modularCombatQueue.Clear();
 
                     if (searchFallbackState != null)
@@ -207,7 +302,10 @@ public class EnemyCombatController : MonoBehaviour
                     }
                     else
                     {
-                        Debug.LogWarning($"{name} has no search fallback. Disengaging.");
+                        if (debugEnabled)
+                        {
+                            Debug.LogWarning($"{name} has no search fallback. Disengaging.");
+                        }
                         DisengageCombat();
                         yield break;
                     }
@@ -229,7 +327,10 @@ public class EnemyCombatController : MonoBehaviour
                 IEnemyCombatState next = modularCombatQueue.Dequeue();
                 if (next == null)
                 {
-                    Debug.LogWarning($"{name} dequeued a null combat state. Skipping...");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} dequeued a null combat state. Skipping...");
+                    }
                     continue;
                 }
 
@@ -237,7 +338,10 @@ public class EnemyCombatController : MonoBehaviour
 
 
                 lastExecutedState = (next as EnemyCombatStateBase)?.GetStateName() ?? "Unknown";
-                Debug.Log($"{name} is starting behavior: {lastExecutedState}");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{name} is starting behavior: {lastExecutedState}");
+                }
 
                 if (Time.time < nextAvailableStateTime)
                 {
@@ -248,11 +352,19 @@ public class EnemyCombatController : MonoBehaviour
                 if (next is EnemyCombatStateBase concreteState)
                     concreteState.EnterState(this);
                 else
-                    Debug.LogWarning($"{name} tried to call EnterState on non-EnemyCombatStateBase: {next.GetType().Name}");
+                {
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} tried to call EnterState on non-EnemyCombatStateBase: {next.GetType().Name}");
+                    }
+                }
 
                 Coroutine behaviorCoroutine = StartCoroutine(WrapWithVisionCheck(next.Execute(this), next));
                 yield return behaviorCoroutine;
-                Debug.Log($"{name} finished behavior: {lastExecutedState}");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{name} finished behavior: {lastExecutedState}");
+                }
 
                 yield return new WaitForSeconds(0.05f);
             }
@@ -260,18 +372,27 @@ public class EnemyCombatController : MonoBehaviour
             {
                 if (TryRetargetPlayer())
                 {
-                    Debug.Log($"{name} retargeted successfully.");
+                    if (debugEnabled)
+                    {
+                        Debug.Log($"{name} retargeted successfully.");
+                    }
                     continue;
                 }
                 else if (searchFallbackState != null)
                 {
-                    Debug.LogWarning($"{name} failed to retarget. Using fallback search...");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} failed to retarget. Using fallback search...");
+                    }
                     yield return StartCoroutine(searchFallbackState.Execute(this));
                     yield break;
                 }
                 else
                 {
-                    Debug.LogError($"{name} has no options left. Disengaging.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogError($"{name} has no options left. Disengaging.");
+                    }
                     DisengageCombat();
                     yield break;
                 }
@@ -284,40 +405,61 @@ public class EnemyCombatController : MonoBehaviour
         string stateName = (state as EnemyCombatStateBase)?.GetStateName() ?? state?.GetType().Name ?? "NULL";
         if (state == null)
         {
-            Debug.LogWarning($"{name} Attempted to enqueue NULL state.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} Attempted to enqueue NULL state.");
+            }
             return;
         }
         if (stateCooldowns.TryGetValue(stateName, out float cooldownUntil) && Time.time < cooldownUntil)
         {
-            Debug.LogWarning($"{name} Skipping {stateName} due to cooldown. Available again at {cooldownUntil}");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} Skipping {stateName} due to cooldown. Available again at {cooldownUntil}");
+            }
             return;
         }
 
         if (bannedStatesUntil.TryGetValue(stateName, out float bannedUntil) && Time.time < bannedUntil)
         {
-            Debug.LogWarning($"{name} Skipping {stateName} due to temporary ban. Available again at {bannedUntil}");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} Skipping {stateName} due to temporary ban. Available again at {bannedUntil}");
+            }
             return;
         }
         // Cooldown check for RushStateTest
         if (stateName == "RushStateTest" && Time.time < nextAvailableStateTime)
         {
-            Debug.LogWarning($"{name} Skipping RushStateTest due to cooldown. Available again at {nextAvailableStateTime}");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} Skipping RushStateTest due to cooldown. Available again at {nextAvailableStateTime}");
+            }
             return;
         }
         if (!state.CanExecute(this))
         {
-            if (stateName == "RushStateTest" && overrideRushRange)
+            if (stateName == "RushStateTest" && overrideRushRange) 
             {
-                Debug.LogWarning($"{name} EnqueueState bypassing CanExecute for: {stateName} due to overrideRushRange");
+                if (debugEnabled) 
+                {
+                    Debug.LogWarning($"{name} EnqueueState bypassing CanExecute for: {stateName} due to overrideRushRange");
+                }
             }
             else
             {
-                Debug.LogWarning($"{name} Attempted to enqueue state that fails CanExecute: {stateName}");
+                if (debugEnabled)
+                {
+                    Debug.LogWarning($"{name} Attempted to enqueue state that fails CanExecute: {stateName}");
+                }
                 return;
             }
         }
 
-        Debug.Log($"{name} Enqueued state: {stateName}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} Enqueued state: {stateName}");
+        }
         modularCombatQueue.Enqueue(state);
     }
 
@@ -326,11 +468,17 @@ public class EnemyCombatController : MonoBehaviour
         var state = GetStateByName(stateName);
         if (state == null)
         {
-            Debug.LogWarning($"{name} attempted to force-enqueue unknown state: {stateName}");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} attempted to force-enqueue unknown state: {stateName}");
+            }
             return;
         }
 
-        Debug.Log($"{name} Force-enqueued state: {stateName}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} Force-enqueued state: {stateName}");
+        }
         modularCombatQueue.Enqueue(state);
     }
 
@@ -343,7 +491,10 @@ public class EnemyCombatController : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"{name} EnqueueWeightedFallback failed to select a valid state.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} EnqueueWeightedFallback failed to select a valid state.");
+            }
         }
     }
 
@@ -352,7 +503,10 @@ public class EnemyCombatController : MonoBehaviour
         var state = behaviorProfile.weightedStates
             .Select(ws => ws.stateComponent as EnemyCombatStateBase)
             .FirstOrDefault(state => state != null && state.GetStateName() == stateName);
-        Debug.Log($"{name} GetStateByName({stateName}) → {(state == null ? "NULL" : "FOUND")}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} GetStateByName({stateName}) → {(state == null ? "NULL" : "FOUND")}");
+        }
         return state;
     }
 
@@ -393,50 +547,77 @@ public class EnemyCombatController : MonoBehaviour
         {
             if (ws.stateComponent == null)
             {
-                Debug.LogWarning($"{name} skipping null stateComponent in behaviorProfile.");
+                if (debugEnabled)
+                {
+                    Debug.LogWarning($"{name} skipping null stateComponent in behaviorProfile.");
+                }
                 continue;
             }
         }
-        Debug.Log($"{name} evaluating {behaviorProfile.weightedStates.Count} behavior states...");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} evaluating {behaviorProfile.weightedStates.Count} behavior states...");
+        }
 
         var validStates = behaviorProfile.weightedStates
             .Where(ws =>
             {
                 if (ws.stateComponent == null)
                 {
-                    Debug.LogWarning($"{name} skipping null stateComponent in behaviorProfile.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} skipping null stateComponent in behaviorProfile.");
+                    }
                     return false;
                 }
 
                 var state = ws.stateComponent as EnemyCombatStateBase;
                 if (!state.CanExecute(this))
                 {
-                    Debug.LogWarning($"{name} rejected state {state.GetStateName()} — failed CanExecute.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} rejected state {state.GetStateName()} — failed CanExecute.");
+                    }
                     return false;
                 }
 
                 if (!isFirstState && !state.CanRunAfter(previousState))
                 {
-                    Debug.LogWarning($"{name} rejected state {state.GetStateName()} — cannot run after {previousState?.GetStateName()}.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} rejected state {state.GetStateName()} — cannot run after {previousState?.GetStateName()}.");
+                    }
                     return false;
                 }
 
-                Debug.Log($"{name} accepted state {state.GetStateName()} with weight {ws.weight}.");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{name} accepted state {state.GetStateName()} with weight {ws.weight}.");
+                }
                 return true;
             })
             .ToList();
 
-        Debug.Log($"{name} found {validStates.Count} valid states after filtering.");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} found {validStates.Count} valid states after filtering.");
+        }
 
         if (validStates.Count == 0)
         {
-            Debug.LogWarning($"{name} has no valid combat states available.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{name} has no valid combat states available.");
+            }
             return;
         }
 
         if (isFirstState)
         {
-            Debug.Log($"{name} is choosing initial combat state (no previous state).");
+            if (debugEnabled)
+            {
+                Debug.Log($"{name} is choosing initial combat state (no previous state).");
+            }
         }
 
         float bonusWeightMultiplier = recentlyFailedAttack ? 1.5f : 1f;
@@ -456,7 +637,10 @@ public class EnemyCombatController : MonoBehaviour
             string sname = (entry.stateComponent as EnemyCombatStateBase)?.GetStateName();
             bool isAggressive = sname == "AttackStateTest" || sname == "RushStateTest";
             float effectiveWeight = isAggressive ? entry.weight * bonusWeightMultiplier : entry.weight;
-            Debug.Log($"{name} rolling {roll:F2} against cumulative {cumulative:F2} for state {sname} (weight: {effectiveWeight:F2})");
+            if (debugEnabled)
+            {
+                Debug.Log($"{name} rolling {roll:F2} against cumulative {cumulative:F2} for state {sname} (weight: {effectiveWeight:F2})");
+            }
             cumulative += effectiveWeight;
             if (roll <= cumulative)
             {
@@ -486,7 +670,10 @@ public class EnemyCombatController : MonoBehaviour
             if (!behavior.MoveNext())
             {
                 combatVisionDistance = originalVisionDistance;
-                Debug.Log($"{name} finished WrapWithVisionCheck for: {lastExecutedState}");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{name} finished WrapWithVisionCheck for: {lastExecutedState}");
+                }
                 yield break;
             }
 
@@ -496,7 +683,10 @@ public class EnemyCombatController : MonoBehaviour
                 if (timeSincePlayerSeen >= combatLoseTimeout)
                 {
                     combatVisionDistance = originalVisionDistance;
-                    Debug.LogWarning($"{name} lost player mid-behavior: {lastExecutedState}");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{name} lost player mid-behavior: {lastExecutedState}");
+                    }
                     modularCombatQueue.Clear();
                     DisengageCombat();
                     yield break;
@@ -537,7 +727,10 @@ public class EnemyCombatController : MonoBehaviour
                 player = hit.transform;
                 overrideRushRange = true;
                 lastKnownPlayerPosition = player.position;
-                Debug.Log($"{name} re-acquired player via fail-safe retarget.");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{name} re-acquired player via fail-safe retarget.");
+                }
                 return true;
             }
         }
@@ -548,6 +741,7 @@ public class EnemyCombatController : MonoBehaviour
     public NavMeshAgent GetAgent() => agent;
     public EquippedWeaponController GetWeaponController() => weaponController;
     public Vector3 GetLastKnownPlayerPosition() => lastKnownPlayerPosition;
+    public Vector3 GetInvestigatePoint() => investigatePoint;
 
     public void RequestInterruptAndReplan()
     {
@@ -557,7 +751,10 @@ public class EnemyCombatController : MonoBehaviour
 
     public void RegisterStateAbortReason(string reason)
     {
-        Debug.LogWarning($"{name} aborted combat state: {reason}");
+        if (debugEnabled)
+        {
+            Debug.LogWarning($"{name} aborted combat state: {reason}");
+        }
     }
 
 
@@ -581,12 +778,23 @@ public class EnemyCombatController : MonoBehaviour
     public void SetStateCooldown(string stateName, float cooldownTime)
     {
         stateCooldowns[stateName] = Time.time + cooldownTime;
-        Debug.Log($"{name} cooldown set for {stateName} until {stateCooldowns[stateName]}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} cooldown set for {stateName} until {stateCooldowns[stateName]}");
+        }
     }
 
     public void BanStateForSeconds(string stateName, float duration)
     {
         bannedStatesUntil[stateName] = Time.time + duration;
-        Debug.Log($"{name} temporarily banned {stateName} until {bannedStatesUntil[stateName]}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{name} temporarily banned {stateName} until {bannedStatesUntil[stateName]}");
+        }
+    }
+    void OnDisable()
+    {
+        if (health != null)
+            health.OnDamaged -= HandleDamaged;
     }
 }

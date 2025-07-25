@@ -11,6 +11,7 @@ public class EquippedWeaponController : MonoBehaviour
 
     [Header("Attack Asset")]
     public AttackAsset currentAttack;
+    [SerializeField] private AttackAsset heavyAttackAsset;
 
     private Coroutine attackCoroutine;
     private Vector3 initialPosition;
@@ -18,11 +19,14 @@ public class EquippedWeaponController : MonoBehaviour
 
     private bool isComboing = false;
     private GameObject lastHitObject;
-    private bool comboQueued = false;
+    private AttackAsset queuedAttack = null;
     private bool comboReadyToFire = false;
 
     private AnimationCurve activeDamageCurve;
     private float currentPhaseProgress = 0f;
+
+    // Stores the weapon's default opener attack so we can reliably reset after combos
+    private AttackAsset initialAttack;
 
     public float GetCurrentDamageMultiplier()
     {
@@ -33,6 +37,10 @@ public class EquippedWeaponController : MonoBehaviour
     {
         if (rb == null) rb = GetComponent<Rigidbody>();
         if (equippedWeapon == null) equippedWeapon = GetComponent<EquippedWeapon>();
+
+        // Capture the starting attack asset for reset logic and debugging
+        initialAttack = currentAttack;
+        Debug.Log($"[EWC] Awake() – initialAttack set to '{initialAttack?.name}'");
 
         if (visualModel != null)
         {
@@ -51,7 +59,7 @@ public class EquippedWeaponController : MonoBehaviour
 
     public void QueueComboInput()
     {
-        comboQueued = true;
+        // No longer used; kept for compatibility if called elsewhere
     }
 
     public void Equip(Transform weaponSocket)
@@ -94,36 +102,39 @@ public class EquippedWeaponController : MonoBehaviour
 
     public void PerformAttack(int comboIndexOverride = -1)
     {
+        Debug.Log($"[EWC] PerformAttack() called – currentAttack='{currentAttack?.name}', queuedAttack='{queuedAttack?.name}'");
+
         if (attackCoroutine != null)
             StopCoroutine(attackCoroutine);
 
+        Debug.Log($"[EWC] Starting PlayAttackRoutine with asset '{currentAttack?.name}'");
+
         AttackAsset attackToPlay = currentAttack;
 
-        if (comboIndexOverride > 0 &&
-            currentAttack.comboAttacks != null &&
-            comboIndexOverride - 1 < currentAttack.comboAttacks.Count)
-        {
-            attackToPlay = currentAttack.comboAttacks[comboIndexOverride - 1];
-        }
+        // Combo index override is no longer used
 
         attackCoroutine = StartCoroutine(PlayAttackRoutine(attackToPlay));
     }
 
     private IEnumerator PlayAttackRoutine(AttackAsset attackAsset)
     {
-        
+        AttackAsset activeAttack = attackAsset;
+        Debug.Log($"[EWC] >>> Enter PlayAttackRoutine – activeAttack='{activeAttack?.name}'");
+
         if (attackAsset == null || attackAsset.phases == null || visualModel == null)
             yield break;
 
         isComboing = true;
         lastHitObject = null;
-        comboQueued = false;
+        queuedAttack = null;
         comboReadyToFire = false;
 
         foreach (var phase in attackAsset.phases)
         {
+            comboReadyToFire = false;
+
             float elapsed = 0f;
-            Vector3 startPos = visualModel.localPosition;
+            Vector3 startPos = visualModel.localPosition; 
             Quaternion startRot = visualModel.localRotation;
 
             Vector3 endPos = initialPosition + phase.positionOffset;
@@ -149,14 +160,22 @@ public class EquippedWeaponController : MonoBehaviour
                 visualModel.localPosition = Vector3.Lerp(startPos, endPos, curveT);
                 visualModel.localRotation = Quaternion.Slerp(startRot, endRot, curveT);
 
-                if (comboReadyToFire && Input.GetMouseButtonDown(0))
+                if (comboReadyToFire && queuedAttack == null && currentAttack.comboMap != null)
                 {
-                    QueueComboInput();
+                    foreach (var mapping in currentAttack.comboMap)
+                    {
+                        // Debug.Log($"Checking combo mapping: inputName='{mapping.inputName}'");
+                        if (Input.GetButtonDown(mapping.inputName))
+                        {
+                            queuedAttack = mapping.nextAttack;
+                            break;
+                        }
+                    }
                 }
 
                 yield return null;
             }
-            
+
             if (phase.enableDamageDuringPhase)
             {
                 DisableDamage();
@@ -165,8 +184,7 @@ public class EquippedWeaponController : MonoBehaviour
 
             comboReadyToFire = false;
 
-            
-            if (phase.endCurrentAttackOnCombo && comboQueued)
+            if (phase.endCurrentAttackOnCombo && queuedAttack != null)
             {
                 Debug.Log("[Combo] Ending current attack early to start combo");
                 break;
@@ -176,28 +194,33 @@ public class EquippedWeaponController : MonoBehaviour
         isComboing = false;
         attackCoroutine = null;
 
-        // Automatically trigger next combo if queued
-        if (comboQueued && currentAttack != null)
+        if (queuedAttack != null)
         {
-            int nextIndex = currentAttack.comboAttacks.IndexOf(attackAsset) + 1;
-
-            if (nextIndex >= 0 && nextIndex < currentAttack.comboAttacks.Count)
-            {
-                Debug.Log("[Combo] Auto-triggering next combo attack...");
-                PerformAttack(nextIndex + 1); // +1 for offset (index 0 = base)
-            }
+            Debug.Log($"[EWC] Queued combo detected – switching currentAttack to '{queuedAttack.name}'");
+            Debug.Log("[Combo] Triggering queued attack: " + queuedAttack.name);
+            currentAttack = queuedAttack;
+            queuedAttack = null;
+            PerformAttack();
+        }
+        else
+        {
+            Debug.Log("[EWC] No queued combo – resetting currentAttack to default opener");
+            currentAttack = initialAttack;
+            queuedAttack = null;
         }
     }
 
 
-    public bool ComboWasQueued() => comboQueued;
+    public bool ComboWasQueued() => queuedAttack != null;
 
-    public bool HasAttackAtIndex(int index)
+    /// <summary>
+    /// Clears any pending combo so that the next PerformAttack starts fresh.
+    /// </summary>
+    public void ClearQueuedCombo()
     {
-        return currentAttack != null &&
-               currentAttack.comboAttacks != null &&
-               index > 0 &&
-               index - 1 < currentAttack.comboAttacks.Count;
+        queuedAttack = null;
+        currentAttack = initialAttack;   // reset to default starter
+        Debug.Log($"[EWC] ClearQueuedCombo() – combo cleared, currentAttack reset to '{initialAttack?.name}'");
     }
 
     public void ReturnToGuardPose()
@@ -232,5 +255,20 @@ public class EquippedWeaponController : MonoBehaviour
             weaponCollider.enabled = false;
             // Debug.Log("[Weapon] Damage collider disabled");
         }
+    }
+    public void PerformHeavyAttack()
+    {
+        if (heavyAttackAsset == null) return;
+
+        if (attackCoroutine != null)
+            StopCoroutine(attackCoroutine);
+
+        attackCoroutine = StartCoroutine(PlayAttackRoutine(heavyAttackAsset));
+    }
+
+    public bool HasAttackAtIndex(int index)
+    {
+        // This can be modified if index-based attack lookup is implemented
+        return currentAttack != null;
     }
 }

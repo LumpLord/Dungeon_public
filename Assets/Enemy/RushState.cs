@@ -20,13 +20,19 @@ public class RushState : EnemyCombatStateBase
     [SerializeField] private float groundDetectionRayDistance = 5.0f;
     [SerializeField] private LayerMask groundMask;
 
+    [Tooltip("Toggle debug logging for this state")]
+    public bool debugEnabled = false;
+
     public float startTime;
     public float endTime;
     public bool isRushing;
 
     public override void EnterState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is entering {this.GetType().Name} with maxRushDuration={maxRushDuration}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} is entering {this.GetType().Name} with maxRushDuration={maxRushDuration}");
+        }
 
         startTime = Time.time;
         endTime = startTime + maxRushDuration + minTimeBeforeNextState;
@@ -48,8 +54,11 @@ public class RushState : EnemyCombatStateBase
 
     public override IEnumerator Execute(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is executing {this.GetType().Name}");
-        Debug.Log($"{controller.name} RushState: checking Rigidbody and NavMeshAgent state...");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} is executing {this.GetType().Name}");
+            Debug.Log($"{controller.name} RushState: checking Rigidbody and NavMeshAgent state...");
+        }
 
         var target = controller.GetTarget();
         var rb = controller.GetComponent<Rigidbody>();
@@ -57,42 +66,60 @@ public class RushState : EnemyCombatStateBase
 
         if (rb == null)
         {
-            Debug.LogWarning($"{controller.name} RushState aborted: Rigidbody is null");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{controller.name} RushState aborted: Rigidbody is null");
+            }
             isRushing = false;
             yield return new WaitForSeconds(minTimeBeforeNextState);
             yield break;
         }
         else if (rb.isKinematic)
         {
-            Debug.LogWarning($"{controller.name} RushState aborted: Rigidbody is kinematic");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{controller.name} RushState aborted: Rigidbody is kinematic");
+            }
             isRushing = false;
             yield return new WaitForSeconds(minTimeBeforeNextState);
             yield break;
         }
         else if (agent == null)
         {
-            Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent is null");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent is null");
+            }
             isRushing = false;
             yield return new WaitForSeconds(minTimeBeforeNextState);
             yield break;
         }
         else if (!agent.enabled)
         {
-            Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent is disabled.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent is disabled.");
+            }
             isRushing = false;
             yield return new WaitForSeconds(minTimeBeforeNextState);
             yield break;
         }
         else if (!agent.isOnNavMesh)
         {
-            Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent not on NavMesh.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{controller.name} RushState aborted: NavMeshAgent not on NavMesh.");
+            }
             isRushing = false;
             yield return new WaitForSeconds(minTimeBeforeNextState);
             yield break;
         }
         else if (controller == null || controller.gameObject == null || !controller.gameObject.activeInHierarchy)
         {
-            Debug.LogWarning($"{controller.name} RushState aborted: Controller GameObject is inactive or null");
+            if (debugEnabled)
+            {
+                Debug.LogWarning($"{controller.name} RushState aborted: Controller GameObject is inactive or null");
+            }
             isRushing = false;
             yield return new WaitForSeconds(minTimeBeforeNextState);
             yield break;
@@ -104,7 +131,10 @@ public class RushState : EnemyCombatStateBase
         Vector3 rushDirection = (target.position - controller.transform.position).normalized;
         rushDirection.y = 0f;
         rb.linearVelocity = rushDirection * rushSpeed;
-        Debug.Log($"{controller.name} RushState velocity set once to: {rb.linearVelocity}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} RushState velocity set once to: {rb.linearVelocity}");
+        }
 
         while (Time.time - startTime < maxRushDuration)
         {
@@ -115,19 +145,28 @@ public class RushState : EnemyCombatStateBase
             float distanceToTarget = Vector3.Distance(controller.transform.position, target.position);
             if (distanceToTarget <= rushStopDistance)
             {
-                Debug.Log($"{controller.name} RushState hit range reached. Initiating attack.");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{controller.name} RushState hit range reached. Initiating attack.");
+                }
                 rb.linearVelocity = Vector3.zero;
                 controller.FaceTargetSmooth();
 
                 var weaponController = controller.GetComponentInChildren<EquippedWeaponController>();
                 if (weaponController != null)
                 {
-                    Debug.Log($"{controller.name} RushState triggering weapon attack.");
+                    if (debugEnabled)
+                    {
+                        Debug.Log($"{controller.name} RushState triggering weapon attack.");
+                    }
                     weaponController.PerformAttack();
                 }
                 else
                 {
-                    Debug.LogWarning($"{controller.name} RushState could not find EquippedWeaponController.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{controller.name} RushState could not find EquippedWeaponController.");
+                    }
                 }
 
                 break;
@@ -183,7 +222,10 @@ public class RushState : EnemyCombatStateBase
             bool safeToRush = failedRayCount < 2;
             if (failedRayCount > 0)
             {
-                Debug.Log($"{controller.name} HybridGroundCheck → failedRays={failedRayCount}, safeToRush={safeToRush}");
+                if (debugEnabled)
+                {
+                    Debug.Log($"{controller.name} HybridGroundCheck → failedRays={failedRayCount}, safeToRush={safeToRush}");
+                }
             }
 
             if (!safeToRush)
@@ -191,11 +233,17 @@ public class RushState : EnemyCombatStateBase
                 failureTimer += Time.deltaTime;
                 rb.linearVelocity = Vector3.zero;
 
-                Debug.LogWarning($"{controller.name} RushState ground check failed... (failedRayCount={failedRayCount}, graceTimer={failureTimer:F2})");
+                if (debugEnabled)
+                {
+                    Debug.LogWarning($"{controller.name} RushState ground check failed... (failedRayCount={failedRayCount}, graceTimer={failureTimer:F2})");
+                }
 
                 if (failedRayCount >= 4 || failureTimer >= failureGraceTime)
                 {
-                    Debug.LogWarning($"{controller.name} RushState aborted: Unsafe terrain or grace timeout.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning($"{controller.name} RushState aborted: Unsafe terrain or grace timeout.");
+                    }
                     isRushing = false;
 
                     float fallbackDistanceToTarget = Vector3.Distance(controller.transform.position, target.position);
@@ -217,7 +265,10 @@ public class RushState : EnemyCombatStateBase
                         }
                         else
                         {
-                            Debug.LogWarning($"{controller.name} RushState: PursuitState is null and could not be enqueued.");
+                            if (debugEnabled)
+                            {
+                                Debug.LogWarning($"{controller.name} RushState: PursuitState is null and could not be enqueued.");
+                            }
                         }
                     }
 
@@ -241,7 +292,10 @@ public class RushState : EnemyCombatStateBase
             yield return null;
         }
 
-        Debug.Log($"{controller.name} RushState movement complete, cleaning up.");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} RushState movement complete, cleaning up.");
+        }
         rb.linearVelocity = Vector3.zero;
         isRushing = false;
 
@@ -251,7 +305,10 @@ public class RushState : EnemyCombatStateBase
 
     public override void ExitState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
+        }
 
         controller.overrideRushRange = false;
         isRushing = false;
@@ -270,14 +327,20 @@ public class RushState : EnemyCombatStateBase
 
     public override bool CanExit(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} CanExit RushState? isRushing={isRushing} time={Time.time} vs endTime={endTime}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} CanExit RushState? isRushing={isRushing} time={Time.time} vs endTime={endTime}");
+        }
         if (!isRushing) return true;
         return Time.time >= endTime;
     }
 
     public override bool CanQueueNextState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} CanQueueNext RushState? isRushing={isRushing} time={Time.time} vs endTime={endTime}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} CanQueueNext RushState? isRushing={isRushing} time={Time.time} vs endTime={endTime}");
+        }
         return !isRushing && Time.time >= endTime;
     }
 
@@ -286,16 +349,25 @@ public class RushState : EnemyCombatStateBase
         var target = controller.GetTarget();
         if (target == null)
         {
-            Debug.Log($"{controller.name} RushState.CanExecute: target is null");
+            if (debugEnabled)
+            {
+                Debug.Log($"{controller.name} RushState.CanExecute: target is null");
+            }
             return false;
         }
 
         float distance = Vector3.Distance(controller.transform.position, target.position);
-        Debug.Log($"{controller.name} RushState.CanExecute: distance={distance}, overrideRushRange={controller.overrideRushRange}");
+        if (debugEnabled)
+        {
+            Debug.Log($"{controller.name} RushState.CanExecute: distance={distance}, overrideRushRange={controller.overrideRushRange}");
+        }
 
         if (controller.overrideRushRange && !controller.overrideRushRangeUsed)
         {
-            Debug.Log($"{controller.name} overrideRushRange is TRUE. Allowing rush at distance {distance}");
+            if (debugEnabled)
+            {
+                Debug.Log($"{controller.name} overrideRushRange is TRUE. Allowing rush at distance {distance}");
+            }
             controller.overrideRushRangeUsed = true;
             return distance >= overrideMinDistance;
         }
@@ -303,7 +375,10 @@ public class RushState : EnemyCombatStateBase
         bool canExecute = distance >= minStartDistance && distance <= maxStartDistance;
         if (!canExecute)
         {
-            Debug.Log($"{controller.name} RushState denied execution: distance={distance} not in range ({minStartDistance}-{maxStartDistance}) and overrideRushRange={controller.overrideRushRange}");
+            if (debugEnabled)
+            {
+                Debug.Log($"{controller.name} RushState denied execution: distance={distance} not in range ({minStartDistance}-{maxStartDistance}) and overrideRushRange={controller.overrideRushRange}");
+            }
         }
         return canExecute;
     }

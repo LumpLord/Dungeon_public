@@ -31,6 +31,9 @@ public class AttackState : EnemyCombatStateBase
     [Header("Cooldown Settings")]
     public float postAttackCooldown = 0.5f;
 
+    [Header("Debug")]
+    public bool debugEnabled = false;
+
     public override void EnterState(EnemyCombatController controller)
     {
         Transform target = controller.GetTarget();
@@ -66,17 +69,26 @@ public class AttackState : EnemyCombatStateBase
 
         if (!agent.enabled || !agent.isOnNavMesh)
         {
-            Debug.LogWarning(controller.name + " Agent not ready. Aborting AttackState.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning(controller.name + " Agent not ready. Aborting AttackState.");
+            }
             yield break;
         }
 
         float initialDistance = Vector3.Distance(controller.transform.position, target.position);
-        Debug.Log(controller.name + " AttackState Execute() — Initial Distance to Target: " + initialDistance);
+        if (debugEnabled)
+        {
+            Debug.Log(controller.name + " AttackState Execute() — Initial Distance to Target: " + initialDistance);
+        }
 
         float earlyAbortDistance = controller.maxAttackStateDistance > 0f ? controller.maxAttackStateDistance : 12f;
         if (Vector3.Distance(controller.transform.position, target.position) > earlyAbortDistance)
         {
-            Debug.LogWarning(controller.name + " aborted attack: player too far at start.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning(controller.name + " aborted attack: player too far at start.");
+            }
             controller.RequestInterruptAndReplan();
             yield break;
         }
@@ -87,7 +99,10 @@ public class AttackState : EnemyCombatStateBase
 
         agent.speed = UnityEngine.Random.Range(minApproachSpeed, maxApproachSpeed);
 
-        Debug.Log(controller.name + " AttackState entering Phase A: Approach");
+        if (debugEnabled)
+        {
+            Debug.Log(controller.name + " AttackState entering Phase A: Approach");
+        }
 
         if (Vector3.Distance(controller.transform.position, target.position) > idealAttackDistance + attackDistanceTolerance)
         {
@@ -100,7 +115,10 @@ public class AttackState : EnemyCombatStateBase
             {
                 if (!controller.PlayerInCombatVision())
                 {
-                    Debug.LogWarning(controller.name + " lost vision during approach. Aborting AttackState.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning(controller.name + " lost vision during approach. Aborting AttackState.");
+                    }
                     yield break;
                 }
 
@@ -111,12 +129,18 @@ public class AttackState : EnemyCombatStateBase
                 float approachDist = Vector3.Distance(controller.transform.position, target.position);
                 if (approachDist > desiredAttackRange + attackDistanceTolerance)
                 {
-                    Debug.LogWarning(controller.name + " aborted approach: player moved out of range.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning(controller.name + " aborted approach: player moved out of range.");
+                    }
                     var rushState = controller.GetStateByName("RushStateTest");
                     if (rushState != null)
                     {
                         controller.overrideRushRange = true;
-                        Debug.Log(controller.name + " overrideRushRange set to true due to approach abort.");
+                        if (debugEnabled)
+                        {
+                            Debug.Log(controller.name + " overrideRushRange set to true due to approach abort.");
+                        }
                         controller.EnqueueForceState("RushStateTest");
                     }
                     yield break;
@@ -125,7 +149,10 @@ public class AttackState : EnemyCombatStateBase
                 approachTimer += Time.deltaTime;
                 if (approachTimer >= approachTimeout)
                 {
-                    Debug.LogWarning(controller.name + " AttackState approach timeout. Aborting.");
+                    if (debugEnabled)
+                    {
+                        Debug.LogWarning(controller.name + " AttackState approach timeout. Aborting.");
+                    }
                     // Notify controller to adjust next behavior weight due to timeout
                     controller.RegisterStateAbortReason("AttackTimeout");
                     yield break;
@@ -136,14 +163,20 @@ public class AttackState : EnemyCombatStateBase
         }
         else
         {
-            Debug.Log(controller.name + " Target already within attack range. Skipping approach.");
+            if (debugEnabled)
+            {
+                Debug.Log(controller.name + " Target already within attack range. Skipping approach.");
+            }
         }
 
         // Check if player has moved out of range before starting the swing
         float currentDistance = Vector3.Distance(controller.transform.position, target.position);
         if (currentDistance > desiredAttackRange + attackDistanceTolerance)
         {
-            Debug.LogWarning(controller.name + " aborted attack: player moved out of range before swing.");
+            if (debugEnabled)
+            {
+                Debug.LogWarning(controller.name + " aborted attack: player moved out of range before swing.");
+            }
             controller.RequestInterruptAndReplan();
             yield break;
         }
@@ -210,7 +243,10 @@ public class AttackState : EnemyCombatStateBase
             yield return null;
         }
 
-        Debug.Log(controller.name + " AttackState completed swing. Checking distance to player...");
+        if (debugEnabled)
+        {
+            Debug.Log(controller.name + " AttackState completed swing. Checking distance to player...");
+        }
 
         // Phase D: Post-Attack Cooldown and Reacquire
         float checkDuration = 0.5f;
@@ -222,7 +258,10 @@ public class AttackState : EnemyCombatStateBase
             float dist = Vector3.Distance(controller.transform.position, controller.GetTarget().position);
             if (dist > desiredAttackRange + attackDistanceTolerance)
             {
-                Debug.Log(controller.name + " Post-attack distance exceeded. Replanning...");
+                if (debugEnabled)
+                {
+                    Debug.Log(controller.name + " Post-attack distance exceeded. Replanning...");
+                }
                 var rushState = controller.GetStateByName("RushStateTest");
                 if (rushState != null)
                 {

@@ -9,10 +9,8 @@ public class PlayerController : MonoBehaviour
 
     [Header("Input Keys")]
     public KeyCode sprintKey = KeyCode.LeftShift;
-    public KeyCode dashKey = KeyCode.Space;
+    public KeyCode dodgeKey = KeyCode.RightAlt;
 
-    [Header("Camera Reference")]
-    public Transform cameraTransform;
 
     [Header("Aiming")]
     public bool isAiming = false;
@@ -26,11 +24,10 @@ public class PlayerController : MonoBehaviour
     private Vector3 velocityRef;
     private float lastDashTime = -999f;
 
-    // Dash state
-    private bool isDashing = false;
-    private Vector3 dashStartPos;
-    private Vector3 dashTargetPos;
-    private float dashElapsed = 0f;
+    // Dodge state
+    private bool isDodging = false;
+    private Vector3 dodgeStartPos;
+    private Vector3 dodgeTargetPos;
 
     // Fall detection
     private float fallTimer = 0f;
@@ -47,72 +44,87 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-        CheckGrounded();
-        CheckFallTimer();
+        // --- Camera‑relative movement axes ---
+        float hRaw = Input.GetAxisRaw("Horizontal");
+        float vRaw = Input.GetAxisRaw("Vertical");
 
-        float h = Input.GetAxisRaw("Horizontal");
-        float v = Input.GetAxisRaw("Vertical");
+        Transform cam = CameraUtil.ActiveCamTransform;
+        Vector3 camForward = cam.forward;  camForward.y = 0f;
+        Vector3 camRight   = cam.right;    camRight.y = 0f;
+        camForward.Normalize();
+        camRight.Normalize();
 
-        Vector3 input = new Vector3(h, 0f, v).normalized;
+        Vector3 desiredDir = (camForward * vRaw + camRight * hRaw).normalized;
 
-        if (cameraTransform != null)
-        {
-            Vector3 camForward = cameraTransform.forward;
-            Vector3 camRight = cameraTransform.right;
-
-            camForward.y = 0f;
-            camRight.y = 0f;
-
-            camForward.Normalize();
-            camRight.Normalize();
-
-            Vector3 moveDir = camForward * input.z + camRight * input.x;
-            smoothInputDirection = Vector3.SmoothDamp(
-                smoothInputDirection,
-                moveDir,
-                ref velocityRef,
-                directionSmoothTime
-            );
-        }
-        else
-        {
-            smoothInputDirection = Vector3.SmoothDamp(
-                smoothInputDirection,
-                input,
-                ref velocityRef,
-                directionSmoothTime
-            );
-        }
+        // Smooth input direction
+        smoothInputDirection = Vector3.SmoothDamp(
+            smoothInputDirection,
+            desiredDir,
+            ref velocityRef,
+            directionSmoothTime);
 
         inputDirection = smoothInputDirection;
 
         isAiming = Input.GetMouseButton(1);
 
-        // Rotate player
-        if (isAiming)
+        // -----------------------------------------------------------------
+        // Hard‑lock: while aiming and a lock target exists, face the target
+        bool hardLocked = LockOnController.CurrentTargetStatic !=null;
+        if (!isDodging && isAiming && hardLocked)
         {
-            Vector3 aimDir = cameraTransform.forward;
-            aimDir.y = 0f;
+            Vector3 flatDir = LockOnController.CurrentTargetStatic.position - transform.position;
+            flatDir.y = 0f;
+            if (flatDir.sqrMagnitude > 0.1f)
+            {
+                Quaternion aimRot = Quaternion.LookRotation(flatDir);
+                transform.rotation = Quaternion.Slerp(transform.rotation, aimRot, Time.deltaTime * 15f);
+            }
+        }
+        else if (!isDodging && hardLocked)
+        {
+            Vector3 toTarget = LockOnController.CurrentTargetStatic.position - transform.position;
+            toTarget.y = 0f;
+            if (toTarget.sqrMagnitude > 0.1f)
+                transform.rotation = Quaternion.Slerp(transform.rotation,
+                            Quaternion.LookRotation(toTarget), Time.deltaTime * 10f);
+        }
+        // Normal free‑aim rotation
+        else if (!isDodging && isAiming)
+        {
+            Transform activeCam = CameraUtil.ActiveCamTransform;
+            Vector3 aimDir = activeCam.forward; aimDir.y = 0f;
+
             if (aimDir.sqrMagnitude > 0.1f)
             {
                 Quaternion aimRot = Quaternion.LookRotation(aimDir);
                 transform.rotation = Quaternion.Slerp(transform.rotation, aimRot, Time.deltaTime * 10f);
             }
         }
-        else if (inputDirection.sqrMagnitude > 0.1f)
+        // Face move direction when not aiming
+        else if (!isDodging && inputDirection.sqrMagnitude > 0.1f)
         {
             Quaternion moveRot = Quaternion.LookRotation(inputDirection);
             transform.rotation = Quaternion.Slerp(transform.rotation, moveRot, Time.deltaTime * 10f);
         }
+        // -----------------------------------------------------------------
 
-        // Dash
-        if (!isDashing && Input.GetKeyDown(dashKey) && Time.time > lastDashTime + movementStats.dashCooldown)
+        // Dodge (camera-relative; back-step fallback)
+        if (!isDodging && Input.GetKeyDown(dodgeKey) &&
+            Time.time > lastDashTime + movementStats.dashCooldown)
         {
-            Vector3 dashDir = inputDirection.sqrMagnitude > 0.01f
-                ? transform.forward
-                : -transform.forward;
+            Vector3 dodgeDir;
 
-            StartCoroutine(DashCoroutine(dashDir));
+            if (inputDirection.sqrMagnitude > 0.01f)
+            {
+                dodgeDir = (camForward * vRaw + camRight * hRaw).normalized;
+            }
+            else
+            {
+                // No input → back‑step
+                dodgeDir = -transform.forward;
+            }
+
+            StartCoroutine(DodgeCoroutine(dodgeDir));
             lastDashTime = Time.time;
         }
 
@@ -125,7 +137,7 @@ public class PlayerController : MonoBehaviour
 
     void FixedUpdate()
     {
-        if (isDashing) return;
+        if (isDodging) return;
 
         float speed = movementStats.moveSpeed;
 
@@ -139,24 +151,29 @@ public class PlayerController : MonoBehaviour
         rb.MovePosition(rb.position + move * Time.fixedDeltaTime);
     }
 
-    IEnumerator DashCoroutine(Vector3 direction)
+    IEnumerator DodgeCoroutine(Vector3 direction)
     {
-        isDashing = true;
-        dashElapsed = 0f;
+        isDodging = true;
 
-        dashStartPos = transform.position;
-        dashTargetPos = dashStartPos + (direction * movementStats.dashDistance);
+        Quaternion lockedRotation = transform.rotation;
+        float elapsed = 0f;
 
-        while (dashElapsed < movementStats.dashTime)
+        Vector3 startPos  = transform.position;
+        Vector3 targetPos = startPos + (direction * movementStats.dashDistance);
+
+        while (elapsed < movementStats.dashTime)
         {
-            dashElapsed += Time.deltaTime;
-            float t = dashElapsed / movementStats.dashTime;
-            transform.position = Vector3.Lerp(dashStartPos, dashTargetPos, t);
+            elapsed += Time.deltaTime;
+            float t = elapsed / movementStats.dashTime;
+
+            transform.position = Vector3.Lerp(startPos, targetPos, t);
+            transform.rotation = lockedRotation;   // keep original facing
+
             yield return null;
         }
 
-        transform.position = dashTargetPos;
-        isDashing = false;
+        transform.position = targetPos;
+        isDodging = false;
     }
 
     private void CheckGrounded()

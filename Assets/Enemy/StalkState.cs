@@ -23,14 +23,19 @@ public class StalkState : EnemyCombatStateBase
     [Range(0f, 1f)]
     public float oddsCircleInward = 0.5f;
 
+    [Header("Debug")]
+    public bool debugEnabled = false;
+
     public override void EnterState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is entering {this.GetType().Name}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} is entering {this.GetType().Name}");
     }
 
     public override IEnumerator Execute(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is executing {this.GetType().Name}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} is executing {this.GetType().Name}");
 
         var agent = controller.GetAgent();
         var target = controller.GetTarget();
@@ -60,11 +65,13 @@ public class StalkState : EnemyCombatStateBase
             float distanceToPlayer = Vector3.Distance(controller.transform.position, target.position);
             if (!ignoreMaxDistance && distanceToPlayer > maxAllowedDistance)
             {
-                Debug.LogWarning($"{controller.name} aborted stalk: player moved out of range.");
+                if (debugEnabled)
+                    Debug.LogWarning($"{controller.name} aborted stalk: player moved out of range.");
                 var rushState = controller.GetStateByName("RushStateTest");
                 if (rushState != null)
                 {
-                    Debug.Log($"{controller.name} forcibly enqueuing RushState due to stalk abort.");
+                    if (debugEnabled)
+                        Debug.Log($"{controller.name} forcibly enqueuing RushState due to stalk abort.");
                     controller.EnqueueForceState("RushStateTest");
                 }
                 yield break;
@@ -89,7 +96,8 @@ public class StalkState : EnemyCombatStateBase
         }
 
         agent.ResetPath();
-        Debug.Log($"{controller.name} StalkState: finished stalking movement, starting exit delay.");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} StalkState: finished stalking movement, starting exit delay.");
 
         float elapsed = 0f;
         while (elapsed < minExitDuration)
@@ -97,14 +105,17 @@ public class StalkState : EnemyCombatStateBase
             elapsed += Time.deltaTime;
             yield return null;
         }
-        Debug.Log($"{controller.name} StalkState: completed execution.");
-        Debug.Log($"{controller.name} forcibly enqueuing RushState after stalk completion.");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} StalkState: completed execution.");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} forcibly enqueuing RushState after stalk completion.");
         controller.EnqueueForceState("RushStateTest");
     }
 
     public override void ExitState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
     }
 
     public override bool CanExecute(EnemyCombatController controller)
@@ -118,13 +129,15 @@ public class StalkState : EnemyCombatStateBase
     // Diagnostics for lockup debugging
     public override bool CanExit(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} CanExit StalkState? timer OK by minExitDuration={minExitDuration}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} CanExit StalkState? timer OK by minExitDuration={minExitDuration}");
         return base.CanExit(controller);
     }
 
     public override bool CanQueueNextState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} CanQueueNext StalkState? timer OK by minExitDuration={minExitDuration}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} CanQueueNext StalkState? timer OK by minExitDuration={minExitDuration}");
         return base.CanQueueNextState(controller);
     }
 }

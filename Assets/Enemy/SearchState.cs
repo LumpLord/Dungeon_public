@@ -5,6 +5,9 @@ using UnityEngine.AI;
 [CreateAssetMenu(fileName = "NewSearchState", menuName = "AI/Combat States/Search")]
 public class SearchState : EnemyCombatStateBase
 {
+    [Header("Debug")]
+    public bool debugEnabled = false;
+
     [Header("Search Parameters")]
     public float rotateDuration = 3f;
     public float relocateRadius = 3f;
@@ -12,12 +15,14 @@ public class SearchState : EnemyCombatStateBase
 
     public override void EnterState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is entering {this.GetType().Name}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} is entering {this.GetType().Name}");
     }
 
     public override IEnumerator Execute(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is executing {this.GetType().Name}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} is executing {this.GetType().Name}");
         NavMeshAgent agent = controller.GetAgent();
         Transform target = controller.GetTarget();
 
@@ -30,7 +35,8 @@ public class SearchState : EnemyCombatStateBase
 
             if (controller.PlayerInCombatVision())
             {
-                Debug.Log($"{controller.name} reacquired player during rotate scan.");
+                if (debugEnabled)
+                    Debug.Log($"{controller.name} reacquired player during rotate scan.");
                 controller.EngageCombat();
                 yield break;
             }
@@ -55,7 +61,8 @@ public class SearchState : EnemyCombatStateBase
 
             if (controller.PlayerInCombatVision())
             {
-                Debug.Log($"{controller.name} reacquired player during relocate.");
+                if (debugEnabled)
+                    Debug.Log($"{controller.name} reacquired player during relocate.");
                 controller.EngageCombat();
                 yield break;
             }
@@ -66,7 +73,8 @@ public class SearchState : EnemyCombatStateBase
         // Phase 3: Still no player found
         if (!controller.PlayerInCombatVision())
         {
-            Debug.Log($"{controller.name} failed to locate player. Disengaging.");
+            if (debugEnabled)
+                Debug.Log($"{controller.name} failed to locate player. Disengaging.");
             controller.DisengageCombat();
         }
 
@@ -75,6 +83,7 @@ public class SearchState : EnemyCombatStateBase
 
     public override void ExitState(EnemyCombatController controller)
     {
-        Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
+        if (debugEnabled)
+            Debug.Log($"{controller.name} is exiting {this.GetType().Name}");
     }
 }

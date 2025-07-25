@@ -9,6 +9,13 @@ public class AttackAsset : ScriptableObject
     [Tooltip("Each phase in order from start to finish")]
     public List<AttackPhase> phases = new List<AttackPhase>();
 
-    [Tooltip("Combo attacks that can follow this one")]
-    public List<AttackAsset> comboAttacks = new List<AttackAsset>();
+    [System.Serializable]
+    public struct ComboMapping
+    {
+        public string inputName; // e.g., "Mouse0", "Mouse3"
+        public AttackAsset nextAttack;
+    }
+
+    [Tooltip("Mapping of input names to follow-up combo attacks")]
+    public List<ComboMapping> comboMap = new List<ComboMapping>();
 }

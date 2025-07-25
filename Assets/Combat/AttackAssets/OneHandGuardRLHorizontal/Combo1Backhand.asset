@@ -17,5 +17,8 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 6e1d54a0040194560aa8503f0346614e, type: 2}
   - {fileID: 11400000, guid: d4e34152f32cb4fdcb26c4fe3ea8e441, type: 2}
   - {fileID: 11400000, guid: ceddc997f0f0441eabe9a6454abf3a7a, type: 2}
-  comboAttacks:
-  - {fileID: 0}
+  comboMap:
+  - inputName: Mouse0
+    nextAttack: {fileID: 11400000, guid: c4bca7dae91224d7b9203dd83fb16b6c, type: 2}
+  - inputName: Mouse3
+    nextAttack: {fileID: 11400000, guid: 413fddba99a294db18ee044e8be1d48d, type: 2}

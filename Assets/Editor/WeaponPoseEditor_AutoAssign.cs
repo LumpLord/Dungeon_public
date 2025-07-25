@@ -1,10 +1,31 @@
 using UnityEngine;
 using UnityEditor;
-using System.Collections.Generic;
 
-public class WeaponPoseEditor : EditorWindow
+/// <summary>
+/// WeaponPoseEditorAuto Usage Guide:
+/// 
+/// 1. Enter Play Mode with your weapon-equipped character selected.
+/// 2. Open the editor via Tools > Weapon Pose Editor (Auto Assign).
+/// 3. The tool attempts to auto-assign references from the selected character.
+///    - "Weapon Controller" should point to the EquippedWeaponController.
+///    - "Visual Model" should be the weapon mesh object to animate.
+///    - "Reference Point" should be the WeaponRoot, which is animated during attacks.
+/// 4. Assign the correct AttackAsset to edit its phases.
+/// 5. Select a phase from the dropdown list.
+/// 
+/// Step-by-step Workflow:
+/// a) With play mode active and the weapon in its rest/default pose,
+///    click "Set Current Pose as Base".
+/// b) Move and rotate the WeaponRoot in the scene view to define this phase’s pose.
+/// c) Click "Apply Current Offset to Phase" to store the difference from base.
+/// d) You can "Preview Phase Offset" to view changes and "Reset to Base Pose" to revert.
+///
+/// Notes:
+/// - Do NOT move or rotate the Visual Model directly—only the WeaponRoot.
+/// - Ensure all attack phases are properly named to appear in the dropdown.
+/// </summary>
+public class WeaponPoseEditorAuto : EditorWindow
 {
-    [Header("Assignments")]
     public EquippedWeaponController weaponController;
     public Transform visualModel;
     public Transform referencePoint;
@@ -15,10 +36,24 @@ public class WeaponPoseEditor : EditorWindow
     private Vector3 baseRotation;
     private string[] phaseNames = new string[0];
 
-    [MenuItem("Tools/Weapon Pose Editor")]
+    [MenuItem("Tools/Weapon Pose Editor (Auto Assign)")]
     public static void ShowWindow()
     {
-        GetWindow<WeaponPoseEditor>("Weapon Pose Editor");
+        GetWindow<WeaponPoseEditorAuto>("Weapon Pose Editor (Auto)");
+    }
+
+    private void OnEnable()
+    {
+        // Attempt auto assignment if in context
+        if (Selection.activeGameObject != null)
+        {
+            weaponController = Selection.activeGameObject.GetComponentInChildren<EquippedWeaponController>();
+            if (weaponController != null)
+            {
+                referencePoint = weaponController.transform;
+                visualModel = weaponController.visualModel;
+            }
+        }
     }
 
     private void OnGUI()
@@ -44,7 +79,7 @@ public class WeaponPoseEditor : EditorWindow
                 {
                     basePosition = visualModel.localPosition;
                     baseRotation = visualModel.localEulerAngles;
-                    Debug.Log("[WeaponPoseEditor] Base pose set.");
+                    Debug.Log("[WeaponPoseEditorAuto] Base pose set.");
                 }
             }
 
@@ -59,7 +94,7 @@ public class WeaponPoseEditor : EditorWindow
                 {
                     visualModel.localPosition = basePosition;
                     visualModel.localEulerAngles = baseRotation;
-                    Debug.Log("[WeaponPoseEditor] Pose reset to base.");
+                    Debug.Log("[WeaponPoseEditorAuto] Pose reset to base.");
                 }
             }
 
@@ -82,7 +117,7 @@ public class WeaponPoseEditor : EditorWindow
         var phase = attackAsset.phases[selectedPhaseIndex];
         visualModel.localPosition = basePosition + phase.positionOffset;
         visualModel.localEulerAngles = baseRotation + phase.rotationOffset;
-        Debug.Log($"[WeaponPoseEditor] Previewed phase '{phase.phaseName}'");
+        Debug.Log($"[WeaponPoseEditorAuto] Previewed phase '{phase.phaseName}'");
     }
 
     private void ApplyCurrentOffsetToPhase()
@@ -99,6 +134,6 @@ public class WeaponPoseEditor : EditorWindow
 
         EditorUtility.SetDirty(phase);
         AssetDatabase.SaveAssets();
-        Debug.Log($"[WeaponPoseEditor] Updated phase '{phase.phaseName}' with current offset.");
+        Debug.Log($"[WeaponPoseEditorAuto] Updated phase '{phase.phaseName}' with current offset.");
     }
 }
